@@ -110,34 +110,190 @@ Built with Flask + vanilla JS. No React, no build step. Just `python app.py` and
 
 ---
 
-## Quick Start
+## Installation (Step by Step)
 
-### Prerequisites
+### Step 1: Install Python
 
-- **Python 3.10+**
-- **pip** (Python package manager)
+SlideCraft requires **Python 3.10 or higher**.
 
-### Installation
+<details>
+<summary><strong>Windows</strong></summary>
+
+1. Go to [python.org/downloads](https://www.python.org/downloads/)
+2. Download the latest Python installer (e.g. Python 3.12.x)
+3. Run the installer
+4. **IMPORTANT**: Check the box **"Add Python to PATH"** at the bottom of the installer
+5. Click **"Install Now"**
+6. Verify installation — open Command Prompt and run:
+   ```
+   python --version
+   ```
+   You should see something like `Python 3.12.x`
+
+</details>
+
+<details>
+<summary><strong>macOS</strong></summary>
+
+1. Install [Homebrew](https://brew.sh/) if you don't have it:
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+2. Install Python:
+   ```bash
+   brew install python
+   ```
+3. Verify:
+   ```bash
+   python3 --version
+   ```
+
+</details>
+
+<details>
+<summary><strong>Linux (Ubuntu/Debian)</strong></summary>
 
 ```bash
-# Clone the repo
-git clone https://github.com/YOUR_USERNAME/slidecraft.git
-cd slidecraft
-
-# Install dependencies
-pip install flask python-pptx Pillow opencv-python-headless easyocr moviepy
-
-# Run the app
-set PYTHONIOENCODING=utf-8 && python app.py
-
-# Open in browser
-# http://localhost:5050
+sudo apt update
+sudo apt install python3 python3-pip python3-venv
+python3 --version
 ```
 
-### Linux / macOS
+</details>
+
+---
+
+### Step 2: Download SlideCraft
+
+**Option A — Clone with Git** (recommended):
+```bash
+git clone https://github.com/YOUR_USERNAME/slidecraft.git
+cd slidecraft
+```
+
+**Option B — Download ZIP**:
+1. Click the green **"Code"** button on GitHub
+2. Click **"Download ZIP"**
+3. Extract the ZIP file
+4. Open a terminal/command prompt in the extracted folder
+
+---
+
+### Step 3: Create a Virtual Environment (Recommended)
+
+This keeps SlideCraft's packages separate from your system Python.
+
+**Windows:**
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+**macOS / Linux:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+> You'll see `(venv)` at the start of your terminal prompt when the virtual environment is active.
+
+---
+
+### Step 4: Install Dependencies
 
 ```bash
-PYTHONIOENCODING=utf-8 python app.py
+pip install -r requirements.txt
+```
+
+This installs all required packages:
+| Package | What it does | Size |
+|---|---|---|
+| `flask` | Web server | ~2 MB |
+| `python-pptx` | Read/write PowerPoint files | ~5 MB |
+| `Pillow` | Image processing | ~10 MB |
+| `opencv-python-headless` | Inpainting & video frame processing | ~40 MB |
+| `easyocr` | Text detection (OCR) | ~150 MB |
+| `moviepy` | Video audio handling | ~5 MB |
+| `torch` | AI backend for EasyOCR | ~200-800 MB |
+
+> **Note:** First install may take 2-5 minutes depending on your internet speed. The `torch` package is the largest (~200MB CPU-only, ~800MB with GPU).
+
+If you get an error with `pip`, try:
+```bash
+python -m pip install -r requirements.txt
+```
+
+---
+
+### Step 5: Run SlideCraft
+
+**Windows:**
+```bash
+set PYTHONIOENCODING=utf-8 && python app.py
+```
+
+**macOS / Linux:**
+```bash
+PYTHONIOENCODING=utf-8 python3 app.py
+```
+
+You should see:
+```
+ * Running on http://0.0.0.0:5050
+```
+
+---
+
+### Step 6: Open in Browser
+
+Open your browser and go to:
+
+```
+http://localhost:5050
+```
+
+That's it! SlideCraft is running.
+
+> **First time using OCR?** The first time you click the "OCR" button, EasyOCR will download its text detection models (~100 MB). This is a one-time download.
+
+---
+
+### Optional: Install LibreOffice (for better PPTX conversion)
+
+LibreOffice enables high-fidelity PPTX-to-image conversion. Without it, SlideCraft falls back to extracting embedded images.
+
+**Windows:** Download from [libreoffice.org](https://www.libreoffice.org/download/) and install.
+
+**macOS:**
+```bash
+brew install --cask libreoffice
+```
+
+**Linux:**
+```bash
+sudo apt install libreoffice
+```
+
+---
+
+### Updating SlideCraft
+
+```bash
+git pull origin main
+pip install -r requirements.txt
+```
+
+---
+
+### Uninstalling
+
+```bash
+# Deactivate virtual environment
+deactivate
+
+# Delete the folder
+# Windows: rmdir /s slidecraft
+# macOS/Linux: rm -rf slidecraft
 ```
 
 ---
