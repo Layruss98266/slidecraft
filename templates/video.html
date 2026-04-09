@@ -96,6 +96,8 @@
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
   .btn-glass { background: var(--glass2); color: var(--text); border: 1px solid var(--glass-border); }
   .btn-glass:hover { border-color: var(--accent); }
+  .btn-danger { background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid rgba(248,113,113,0.3); }
+  .btn-danger:hover { background: rgba(248,113,113,0.25); }
   .btn svg { width: 16px; height: 16px; }
 
   .progress-section { display: none; margin-top: 20px; }
@@ -173,7 +175,13 @@
     </div>
 
     <div class="progress-section" id="progress-section">
-      <div class="progress-text" id="progress-text">Processing video...</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="progress-text" id="progress-text" style="flex:1">Processing video...</div>
+        <button class="btn btn-danger" id="btn-stop" onclick="stopProcessing()" style="padding:6px 16px;font-size:12px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+          Stop
+        </button>
+      </div>
       <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-fill"></div></div>
     </div>
 
@@ -298,6 +306,16 @@ function getLogoRegion() {
   };
 }
 
+let currentJobId = null;
+let currentPoll = null;
+const removeBtnHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg> Remove Logo';
+
+function resetBtn() {
+  const btn = document.getElementById('btn-remove');
+  btn.disabled = false;
+  btn.innerHTML = removeBtnHTML;
+}
+
 async function removeLogo() {
   const region = getLogoRegion();
   const btn = document.getElementById('btn-remove');
@@ -305,11 +323,12 @@ async function removeLogo() {
   btn.textContent = 'Starting...';
 
   document.getElementById('progress-section').classList.add('active');
+  document.getElementById('result-section').classList.remove('active');
   document.getElementById('progress-fill').style.width = '0%';
   document.getElementById('progress-text').textContent = 'Starting video processing...';
+  document.getElementById('btn-stop').style.display = '';
 
   try {
-    // Start the job
     const resp = await fetch('/api/video/remove-logo', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename: currentFilename, ...region })
@@ -317,18 +336,16 @@ async function removeLogo() {
     const data = await resp.json();
     if (!data.ok) {
       showToast(data.error || 'Failed to start', 'error');
-      btn.disabled = false;
+      resetBtn();
       return;
     }
 
-    // Poll for progress
-    const jobId = data.jobId;
+    currentJobId = data.jobId;
     const startTime = Date.now();
-    let pollCount = 0;
 
-    const poll = setInterval(async () => {
+    currentPoll = setInterval(async () => {
       try {
-        const pResp = await fetch(`/api/video/progress/${jobId}`);
+        const pResp = await fetch(`/api/video/progress/${currentJobId}`);
         const pData = await pResp.json();
 
         const { status, progress, total, eta, output, error } = pData;
@@ -337,19 +354,24 @@ async function removeLogo() {
         document.getElementById('progress-fill').style.width = pct + '%';
 
         if (status === 'processing' && total > 0) {
-          const elapsed = (Date.now() - startTime) / 1000;
           const etaMin = Math.floor(eta / 60);
           const etaSec = Math.round(eta % 60);
           const etaStr = etaMin > 0 ? `${etaMin}m ${etaSec}s` : `${etaSec}s`;
+          const elapsed = Math.round((Date.now() - startTime) / 1000);
+          const elMin = Math.floor(elapsed / 60);
+          const elSec = elapsed % 60;
+          const elStr = elMin > 0 ? `${elMin}m ${elSec}s` : `${elSec}s`;
           document.getElementById('progress-text').innerHTML =
-            `<strong>${pct}%</strong> &mdash; Frame ${progress.toLocaleString()} / ${total.toLocaleString()} &mdash; <strong>${etaStr}</strong> remaining`;
+            `<strong>${pct}%</strong> &mdash; Frame ${progress.toLocaleString()} / ${total.toLocaleString()} &mdash; <strong>${etaStr}</strong> remaining &mdash; Elapsed: ${elStr}`;
         } else if (status === 'muxing_audio') {
           document.getElementById('progress-fill').style.width = '95%';
           document.getElementById('progress-text').innerHTML =
             '<strong>95%</strong> &mdash; Adding audio track...';
+          document.getElementById('btn-stop').style.display = 'none';
         } else if (status === 'done') {
-          clearInterval(poll);
+          clearInterval(currentPoll); currentPoll = null; currentJobId = null;
           document.getElementById('progress-fill').style.width = '100%';
+          document.getElementById('btn-stop').style.display = 'none';
           const totalTime = Math.round((Date.now() - startTime) / 1000);
           const tMin = Math.floor(totalTime / 60);
           const tSec = totalTime % 60;
@@ -359,22 +381,37 @@ async function removeLogo() {
           outputFilename = output;
           document.getElementById('result-section').classList.add('active');
           showToast('Logo removed successfully!', 'success');
-          btn.disabled = false;
-          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg> Remove Logo';
+          resetBtn();
+        } else if (status === 'cancelled') {
+          clearInterval(currentPoll); currentPoll = null; currentJobId = null;
+          document.getElementById('progress-text').innerHTML = '<strong>Stopped</strong> by user';
+          document.getElementById('btn-stop').style.display = 'none';
+          showToast('Processing stopped', 'info');
+          resetBtn();
         } else if (status === 'error') {
-          clearInterval(poll);
+          clearInterval(currentPoll); currentPoll = null; currentJobId = null;
           document.getElementById('progress-text').textContent = 'Error: ' + error;
+          document.getElementById('btn-stop').style.display = 'none';
           showToast('Processing failed: ' + error, 'error');
-          btn.disabled = false;
-          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg> Remove Logo';
+          resetBtn();
         }
       } catch (e) { /* ignore poll errors */ }
-    }, 500);  // Poll every 500ms
+    }, 500);
 
   } catch (e) {
     showToast('Error: ' + e.message, 'error');
-    btn.disabled = false;
+    resetBtn();
   }
+}
+
+async function stopProcessing() {
+  if (!currentJobId) return;
+  try {
+    await fetch(`/api/video/stop/${currentJobId}`, { method: 'POST' });
+    showToast('Stopping... please wait', 'info');
+    document.getElementById('btn-stop').disabled = true;
+    document.getElementById('btn-stop').textContent = 'Stopping...';
+  } catch (e) {}
 }
 
 function downloadResult() {

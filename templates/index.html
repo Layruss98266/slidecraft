@@ -269,10 +269,14 @@
   }
 
   .canvas-toolbar {
-    display: flex; align-items: center; gap: 6px; padding: 10px 16px;
+    display: flex; align-items: center; gap: 4px; padding: 6px 12px;
     background: var(--glass); backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--glass-border); flex-shrink: 0;
     flex-wrap: wrap;
+  }
+  .toolbar-label {
+    font-size: 8px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text3); font-weight: 700; padding: 0 3px; user-select: none;
   }
 
   .tool-group {
@@ -624,6 +628,95 @@
     font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
     margin-left: 6px;
   }
+
+  /* ── NEW: Generic Modal ──────────────────────────────────────────────── */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 180; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(10,14,26,0.7); backdrop-filter: blur(6px);
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal-card {
+    background: rgba(20, 28, 50, 0.95); backdrop-filter: blur(24px);
+    border: 1px solid var(--glass-border-hover);
+    border-radius: var(--radius); padding: 24px 28px;
+    min-width: 380px; max-width: 520px; max-height: 80vh; overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+  }
+  .modal-card h3 {
+    font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .modal-card h3 svg { width: 18px; height: 18px; color: var(--accent2); }
+  .modal-close {
+    position: absolute; top: 12px; right: 14px; background: none; border: none;
+    color: var(--text3); cursor: pointer; font-size: 18px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+
+  /* ── NEW: Filters panel ──────────────────────────────────────────────── */
+  .filter-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  }
+  .filter-btn {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    padding: 8px 10px; border-radius: var(--radius-xs); border: 1px solid var(--glass-border);
+    background: var(--surface); color: var(--text2); font-size: 12px; font-weight: 500;
+    font-family: inherit; cursor: pointer; transition: all var(--transition);
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+  .filter-btn svg { width: 14px; height: 14px; opacity: 0.6; }
+
+  /* ── NEW: Comment pins ───────────────────────────────────────────────── */
+  .comment-pin {
+    position: absolute; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; box-shadow: 0 2px 8px rgba(59,130,246,0.4);
+    transform: translate(-50%, -50%); z-index: 5; transition: transform 0.15s;
+    border: 2px solid #fff;
+  }
+  .comment-pin:hover { transform: translate(-50%, -50%) scale(1.2); }
+  .comment-pin.resolved { background: var(--green); box-shadow: 0 2px 8px var(--green-glow); }
+
+  .comment-item {
+    background: var(--surface); border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 6px;
+    transition: all var(--transition);
+  }
+  .comment-item:hover { border-color: var(--glass-border-hover); }
+  .comment-item.resolved { opacity: 0.5; }
+  .comment-item .comment-author { font-size: 10px; color: var(--accent2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+  .comment-item .comment-text { font-size: 13px; color: var(--text); margin: 4px 0; }
+  .comment-item .comment-meta { font-size: 10px; color: var(--text3); }
+  .comment-item .comment-actions { display: flex; gap: 4px; margin-top: 6px; }
+
+  /* ── NEW: Template/History list items ─────────────────────────────────── */
+  .list-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface); border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 6px;
+    cursor: pointer; transition: all var(--transition);
+  }
+  .list-item:hover { border-color: var(--glass-border-hover); background: rgba(30,40,60,0.5); }
+  .list-item .list-item-name { font-size: 13px; color: var(--text); font-weight: 500; }
+  .list-item .list-item-meta { font-size: 10px; color: var(--text3); }
+  .list-item .list-item-actions { display: flex; gap: 4px; }
+
+  /* ── NEW: Crop overlay ───────────────────────────────────────────────── */
+  .crop-overlay {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); z-index: 10; display: none;
+  }
+  .crop-overlay.active { display: block; }
+  .crop-rect {
+    position: absolute; border: 2px dashed var(--green);
+    background: transparent; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
+  }
+  .crop-confirm-bar {
+    position: absolute; bottom: -40px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px; z-index: 11;
+  }
 </style>
 </head>
 <body>
@@ -722,8 +815,6 @@
         <span class="logo-sub">Slide Editor</span>
       </div>
     </div>
-    <div class="nav-divider"></div>
-    <div class="badge">Cyber Resilience</div>
   </div>
 
   <!-- Center: Slide navigation pill -->
@@ -781,6 +872,16 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         <span class="act-label">PDF</span>
       </button>
+      <div class="group-sep"></div>
+      <button class="btn-action" onclick="exportPNGZip()" title="Export all slides as PNG ZIP">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
+        <span class="act-label">PNG</span>
+      </button>
+      <div class="group-sep"></div>
+      <button class="btn-action" onclick="exportGIF()" title="Export as animated GIF">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18"/><polygon points="10,8 16,12 10,16"/></svg>
+        <span class="act-label">GIF</span>
+      </button>
     </div>
 
     <div class="action-group">
@@ -815,28 +916,42 @@
   <!-- Canvas area -->
   <div class="canvas-area">
     <div class="canvas-toolbar">
+      <!-- ROW 1: Drawing tools -->
+      <span class="toolbar-label">TOOLS</span>
       <div class="tool-group">
-        <button class="tool-btn active" id="tool-select" onclick="setTool('select')" title="Select/Move overlays">
+        <button class="tool-btn active" id="tool-select" onclick="setTool('select')" title="Select/Move">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
-          Select <span class="kbd">S</span>
+          <span class="kbd">S</span>
         </button>
-        <button class="tool-btn" id="tool-text" onclick="setTool('text')" title="Draw text box">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,7 4,4 20,4 20,7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-          Text <span class="kbd">T</span>
+        <button class="tool-btn" id="tool-text" onclick="setTool('text')" title="Text box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,7 4,4 20,4 20,7"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          <span class="kbd">T</span>
         </button>
-        <button class="tool-btn" id="tool-rect" onclick="setTool('rect')" title="Draw rectangle shape">
+        <button class="tool-btn" id="tool-rect" onclick="setTool('rect')" title="Rectangle">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
-          Rect <span class="kbd">R</span>
+          <span class="kbd">R</span>
         </button>
-        <button class="tool-btn" id="tool-cover" onclick="setTool('cover')" title="Cover & Type tool">
+        <button class="tool-btn" id="tool-circle" onclick="setTool('circle')" title="Circle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+        </button>
+        <button class="tool-btn" id="tool-line" onclick="setTool('line')" title="Line/Arrow">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12,5 19,12 12,19"/></svg>
+        </button>
+        <button class="tool-btn" id="tool-callout" onclick="setTool('callout')" title="Callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        </button>
+        <button class="tool-btn" id="tool-draw" onclick="setTool('draw')" title="Freehand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+        </button>
+        <button class="tool-btn" id="tool-cover" onclick="setTool('cover')" title="Cover & Type">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/></svg>
-          Cover <span class="kbd">C</span>
+          <span class="kbd">C</span>
         </button>
       </div>
 
       <div class="tool-sep"></div>
 
-      <!-- Undo/Redo -->
+      <span class="toolbar-label">EDIT</span>
       <div class="tool-group">
         <button class="tool-btn btn-sm disabled" id="btn-undo" onclick="undo()" title="Undo (Ctrl+Z)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
@@ -844,52 +959,74 @@
         <button class="tool-btn btn-sm disabled" id="btn-redo" onclick="redo()" title="Redo (Ctrl+Y)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 11-2.13-9.36L23 10"/></svg>
         </button>
+        <button class="tool-btn btn-sm" onclick="deleteSelected()" title="Delete (Del)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        </button>
+        <button class="tool-btn btn-sm" onclick="duplicateSelected()" title="Duplicate">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
       </div>
 
       <div class="tool-sep"></div>
 
-      <button class="tool-btn btn-sm" onclick="deleteSelected()" title="Delete selected (Del)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-      </button>
-      <button class="tool-btn btn-sm" onclick="duplicateSelected()" title="Duplicate selected">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-      </button>
-
-      <div class="tool-sep"></div>
-
-      <!-- Image overlay -->
-      <button class="tool-btn btn-sm" onclick="addImageOverlay()" title="Add Image Overlay">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
-        Image
-      </button>
+      <span class="toolbar-label">INSERT</span>
+      <div class="tool-group">
+        <button class="tool-btn btn-sm" onclick="addImageOverlay()" title="Image overlay">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
+        </button>
+        <button class="tool-btn btn-sm" onclick="openQRModal()" title="QR code">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        </button>
+        <button class="tool-btn btn-sm" onclick="openWatermarkModal()" title="Watermark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </button>
+      </div>
       <input type="file" id="image-upload-input" accept="image/*" style="display:none" onchange="handleImageUpload(this)">
 
       <div class="tool-sep"></div>
 
-      <!-- Grid toggle -->
-      <button class="tool-btn btn-sm" id="btn-grid" onclick="toggleGrid()" title="Toggle snap grid (G)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-        Grid <span class="kbd">G</span>
-      </button>
+      <span class="toolbar-label">SLIDE</span>
+      <div class="tool-group">
+        <button class="tool-btn btn-sm" onclick="detectText()" title="Detect text (OCR)" id="btn-ocr">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+          OCR
+        </button>
+        <button class="tool-btn btn-sm" onclick="clearOCR()" title="Clear OCR" id="btn-clear-ocr" style="display:none">X</button>
+        <button class="tool-btn btn-sm" onclick="startCrop()" title="Crop">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.13 1L6 16a2 2 0 002 2h15"/><path d="M1 6.13L16 6a2 2 0 012 2v15"/></svg>
+        </button>
+        <button class="tool-btn btn-sm" onclick="rotateSlide(90)" title="Rotate CW">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 11-2.13-9.36L23 10"/></svg>
+        </button>
+        <button class="tool-btn btn-sm" id="btn-grid" onclick="toggleGrid()" title="Grid (G)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        </button>
+      </div>
 
       <div class="tool-sep"></div>
 
-      <!-- OCR -->
-      <button class="tool-btn btn-sm" onclick="detectText()" title="Detect text via OCR" id="btn-ocr">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        OCR
-      </button>
-      <button class="tool-btn btn-sm" onclick="clearOCR()" title="Clear OCR regions" id="btn-clear-ocr" style="display:none">
-        Clear OCR
-      </button>
+      <span class="toolbar-label">MANAGE</span>
+      <div class="tool-group">
+        <button class="tool-btn btn-sm" onclick="openFindReplaceModal()" title="Find & Replace">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+        <button class="tool-btn btn-sm" onclick="openHistoryModal()" title="Version history">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+        </button>
+        <button class="tool-btn btn-sm" onclick="openTemplatesModal()" title="Templates">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        </button>
+        <button class="tool-btn btn-sm" id="tool-comment" onclick="setTool('comment')" title="Comments">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+        </button>
+      </div>
 
       <div class="tool-sep"></div>
 
       <div class="zoom-control">
-        <label>Zoom</label>
         <input type="range" class="zoom-slider" min="30" max="120" value="70" id="zoom-range" oninput="setZoom(this.value)">
         <span class="zoom-val" id="zoom-val">70%</span>
-        <button class="tool-btn btn-sm" onclick="fitToScreen()" title="Fit to screen" style="padding:4px 8px;margin-left:4px">Fit</button>
+        <button class="tool-btn btn-sm" onclick="fitToScreen()" title="Fit to screen" style="padding:3px 6px">Fit</button>
       </div>
 
       <div class="slide-nav">
@@ -925,6 +1062,14 @@
       <div class="panel-tab" id="tab-notes" onclick="switchTab('notes')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>
         Notes
+      </div>
+      <div class="panel-tab" id="tab-filters" onclick="switchTab('filters')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22,3 2,3 10,12.46 10,19 14,21 14,12.46"/></svg>
+        Filters
+      </div>
+      <div class="panel-tab" id="tab-comments" onclick="switchTab('comments')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+        Comments
       </div>
     </div>
 
@@ -1119,8 +1264,187 @@
         Save Notes
       </button>
     </div>
+
+    <!-- Filters Panel -->
+    <div class="panel-body" id="panel-filters" style="display:none">
+      <div class="section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06"/></svg>
+        Image Filters
+      </div>
+      <div class="filter-grid">
+        <button class="filter-btn" onclick="applyFilter('brightness', 1.2)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          Bright +
+        </button>
+        <button class="filter-btn" onclick="applyFilter('brightness', 0.8)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/></svg>
+          Bright -
+        </button>
+        <button class="filter-btn" onclick="applyFilter('contrast', 1.3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 010 20V2z"/></svg>
+          Contrast +
+        </button>
+        <button class="filter-btn" onclick="applyFilter('contrast', 0.7)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+          Contrast -
+        </button>
+        <button class="filter-btn" onclick="applyFilter('blur', 2.0)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v18M18 3v18M3 6h18M3 18h18"/></svg>
+          Blur
+        </button>
+        <button class="filter-btn" onclick="applyFilter('sharpen', 1.5)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13,2 3,14 12,14 11,22 21,10 12,10"/></svg>
+          Sharpen
+        </button>
+        <button class="filter-btn" onclick="applyFilter('grayscale', 1.0)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+          Grayscale
+        </button>
+        <button class="filter-btn" onclick="applyFilter('sepia', 1.0)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="4"/></svg>
+          Sepia
+        </button>
+      </div>
+      <div style="margin-top:12px">
+        <button class="btn btn-danger btn-sm" style="width:100%" onclick="applyFilter('brightness', 1.0)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+          Reset Filters
+        </button>
+      </div>
+      <div class="divider"></div>
+      <div class="section-title">Saturation</div>
+      <div style="display:flex;gap:6px">
+        <button class="filter-btn" style="flex:1" onclick="applyFilter('saturation', 1.4)">Sat +</button>
+        <button class="filter-btn" style="flex:1" onclick="applyFilter('saturation', 0.6)">Sat -</button>
+      </div>
+    </div>
+
+    <!-- Comments Panel -->
+    <div class="panel-body" id="panel-comments" style="display:none">
+      <div class="section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+        Slide Comments
+      </div>
+      <div id="comments-list">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:32px;height:32px;opacity:0.3"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+          <div>No comments yet</div>
+          <div style="font-size:11px;margin-top:4px">Use the comment tool to add pins on the canvas</div>
+        </div>
+      </div>
+    </div>
   </div>
 
+</div>
+
+<!-- QR Code Modal -->
+<div class="modal-backdrop" id="qr-modal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal-card" style="position:relative">
+    <h3>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      Generate QR Code
+    </h3>
+    <div class="field">
+      <label>URL</label>
+      <input type="text" id="qr-url" placeholder="https://example.com" value="https://example.com">
+    </div>
+    <button class="btn btn-primary btn-sm" style="width:100%" onclick="generateQR()">Generate & Insert</button>
+  </div>
+</div>
+
+<!-- Watermark Modal -->
+<div class="modal-backdrop" id="watermark-modal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal-card" style="position:relative">
+    <h3>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Add Watermark
+    </h3>
+    <div class="field">
+      <label>Watermark Text</label>
+      <input type="text" id="wm-text" placeholder="CONFIDENTIAL" value="CONFIDENTIAL">
+    </div>
+    <div class="field">
+      <label>Position</label>
+      <select id="wm-position">
+        <option value="center">Center</option>
+        <option value="bottom-right">Bottom Right</option>
+        <option value="tiled">Tiled</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Opacity</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="range" class="zoom-slider" min="0.05" max="0.5" step="0.05" value="0.15" id="wm-opacity" oninput="document.getElementById('wm-opacity-val').textContent=Math.round(this.value*100)+'%'" style="flex:1">
+        <span class="range-val" id="wm-opacity-val">15%</span>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" style="width:100%" onclick="applyWatermark()">Apply Watermark</button>
+  </div>
+</div>
+
+<!-- Find & Replace Modal -->
+<div class="modal-backdrop" id="findreplace-modal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal-card" style="position:relative">
+    <h3>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Find & Replace
+    </h3>
+    <div class="field">
+      <label>Find</label>
+      <input type="text" id="fr-find" placeholder="Search text...">
+    </div>
+    <div class="field">
+      <label>Replace With</label>
+      <input type="text" id="fr-replace" placeholder="Replacement text...">
+    </div>
+    <button class="btn btn-primary btn-sm" style="width:100%" onclick="doFindReplace()">Replace All</button>
+    <div id="fr-result" style="margin-top:10px;font-size:12px;color:var(--text2);text-align:center"></div>
+  </div>
+</div>
+
+<!-- Version History Modal -->
+<div class="modal-backdrop" id="history-modal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal-card" style="position:relative;min-width:420px">
+    <h3>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+      Version History
+    </h3>
+    <button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:12px" onclick="saveVersion()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>
+      Save Current Version
+    </button>
+    <div id="history-list">
+      <div class="empty-state" style="padding:16px">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Templates Modal -->
+<div class="modal-backdrop" id="templates-modal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal-card" style="position:relative;min-width:420px">
+    <h3>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+      Templates
+    </h3>
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <input type="text" id="tpl-name" placeholder="Template name..." style="flex:1;background:var(--surface);border:1px solid var(--glass-border);color:var(--text);padding:8px 12px;border-radius:var(--radius-xs);font-size:13px;font-family:inherit;outline:none">
+      <button class="btn btn-primary btn-sm" onclick="saveTemplate()">Save</button>
+    </div>
+    <div id="templates-list">
+      <div class="empty-state" style="padding:16px">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Comment Input Popup (positioned absolutely near click) -->
+<div id="comment-popup" style="display:none;position:fixed;z-index:190;background:rgba(20,28,50,0.95);border:1px solid var(--glass-border-hover);border-radius:var(--radius-sm);padding:12px;box-shadow:var(--shadow-lg);min-width:220px">
+  <div class="field" style="margin-bottom:8px">
+    <input type="text" id="comment-input" placeholder="Add a comment..." style="font-size:13px">
+  </div>
+  <div style="display:flex;gap:6px">
+    <button class="btn btn-primary btn-sm" style="flex:1" onclick="submitComment()">Add</button>
+    <button class="btn btn-glass btn-sm" onclick="cancelComment()">Cancel</button>
+  </div>
 </div>
 
 <!-- Toast -->
@@ -1307,10 +1631,10 @@ function fitToScreen() {
 // ══════════════════════════════════════════════════════════════════════════
 function setTool(t) {
   currentTool = t;
-  ['select','text','rect','cover'].forEach(id => {
+  ['select','text','rect','cover','circle','line','callout','draw','comment'].forEach(id => {
     document.getElementById('tool-' + id)?.classList.toggle('active', id === t);
   });
-  canvas.style.cursor = t === 'select' ? 'default' : 'crosshair';
+  canvas.style.cursor = (t === 'select') ? 'default' : (t === 'draw') ? 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'6\' height=\'6\'%3E%3Ccircle cx=\'3\' cy=\'3\' r=\'3\' fill=\'%2360a5fa\'/%3E%3C/svg%3E") 3 3, crosshair' : (t === 'comment') ? 'cell' : 'crosshair';
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1369,10 +1693,35 @@ function hitHandle(nx, ny) {
   return null;
 }
 
+// Freehand drawing state
+let freehandPoints = [];
+let isFreehandDrawing = false;
+
+// Comment placement state
+let pendingCommentPos = null;
+
 function onMouseDown(e) {
   if (e.button === 2) return; // right-click handled separately
   hideContextMenu();
   const nx = normX(e.clientX), ny = normY(e.clientY);
+
+  if (currentTool === 'comment') {
+    // Place comment pin
+    pendingCommentPos = { x: nx, y: ny };
+    const popup = document.getElementById('comment-popup');
+    popup.style.left = e.clientX + 'px';
+    popup.style.top = e.clientY + 'px';
+    popup.style.display = 'block';
+    document.getElementById('comment-input').value = '';
+    document.getElementById('comment-input').focus();
+    return;
+  }
+
+  if (currentTool === 'draw') {
+    isFreehandDrawing = true;
+    freehandPoints = [{ x: nx, y: ny }];
+    return;
+  }
 
   if (currentTool === 'select') {
     // Check resize handles first
@@ -1400,6 +1749,24 @@ function onMouseDown(e) {
 
 function onMouseMove(e) {
   const nx = normX(e.clientX), ny = normY(e.clientY);
+
+  // Freehand drawing
+  if (isFreehandDrawing && currentTool === 'draw') {
+    freehandPoints.push({ x: nx, y: ny });
+    renderOverlays();
+    // Draw current freehand path
+    ctx.beginPath();
+    ctx.moveTo(freehandPoints[0].x * canvas.width, freehandPoints[0].y * canvas.height);
+    for (let p = 1; p < freehandPoints.length; p++) {
+      ctx.lineTo(freehandPoints[p].x * canvas.width, freehandPoints[p].y * canvas.height);
+    }
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    return;
+  }
 
   // Resize
   if (resizing && selectedIdx >= 0) {
@@ -1467,6 +1834,36 @@ function onMouseMove(e) {
 }
 
 function onMouseUp(e) {
+  // Freehand drawing end
+  if (isFreehandDrawing && currentTool === 'draw') {
+    isFreehandDrawing = false;
+    if (freehandPoints.length > 2) {
+      pushUndo();
+      // Calculate bounding box for the freehand overlay
+      let minX = 1, minY = 1, maxX = 0, maxY = 0;
+      freehandPoints.forEach(p => {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      });
+      overlays.push({
+        type: 'freehand',
+        x: minX, y: minY, w: maxX - minX || 0.01, h: maxY - minY || 0.01,
+        points: [...freehandPoints],
+        color: '#ef4444',
+        lineWidth: 3,
+        opacity: 1
+      });
+      selectOverlay(overlays.length - 1);
+      renderOverlayList();
+      markDirty();
+    }
+    freehandPoints = [];
+    renderOverlays();
+    return;
+  }
+
   if (resizing) {
     resizing = null;
     return;
@@ -1738,6 +2135,9 @@ document.addEventListener('click', (e) => {
 function createOverlay(type, x, y, w, h) {
   if (type === 'text') return { type:'text', x, y, w, h, text:'New Text', fontFamily:'Segoe UI', fontSize:22, color:'#FFFFFF', bold:true, italic:false, underline:false, align:'left', bgColor:'transparent', opacity:1, letterSpacing:0, lineHeight:1.3, textTransform:'none', shadow:false, shadowColor:'#000000', shadowBlur:4, outline:false, outlineColor:'#000000', outlineWidth:1, autoFit:false, listStyle:'none' };
   if (type === 'rect') return { type:'rect', x, y, w, h, fillColor:'#2563EB', opacity:0.7 };
+  if (type === 'circle') return { type:'circle', x, y, w, h, fillColor:'#8b5cf6', strokeColor:'#a78bfa', strokeWidth:2, opacity:0.7 };
+  if (type === 'line') return { type:'line', x, y, w, h, strokeColor:'#f59e0b', strokeWidth:3, opacity:1 };
+  if (type === 'callout') return { type:'callout', x, y, w, h, text:'Callout', fillColor:'#fbbf24', color:'#000000', fontSize:16, opacity:0.9 };
   return { type, x, y, w, h };
 }
 
@@ -2009,6 +2409,78 @@ function renderOverlays() {
         ctx.textAlign = 'center';
         ctx.fillText('Loading...', x + w/2, y + h/2);
       }
+    } else if (ov.type === 'circle') {
+      const rx = w / 2, ry = h / 2;
+      ctx.beginPath();
+      ctx.ellipse(x + rx, y + ry, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = ov.fillColor || '#8b5cf6';
+      ctx.fill();
+      if (ov.strokeColor) {
+        ctx.strokeStyle = ov.strokeColor;
+        ctx.lineWidth = ov.strokeWidth || 2;
+        ctx.stroke();
+      }
+    } else if (ov.type === 'line') {
+      ctx.beginPath();
+      ctx.moveTo(x, y + h / 2);
+      ctx.lineTo(x + w, y + h / 2);
+      ctx.strokeStyle = ov.strokeColor || '#f59e0b';
+      ctx.lineWidth = ov.strokeWidth || 3;
+      ctx.setLineDash([]);
+      ctx.stroke();
+      // Arrowhead
+      const arrSize = Math.min(12, w * 0.15);
+      ctx.beginPath();
+      ctx.moveTo(x + w, y + h / 2);
+      ctx.lineTo(x + w - arrSize, y + h / 2 - arrSize / 2);
+      ctx.lineTo(x + w - arrSize, y + h / 2 + arrSize / 2);
+      ctx.closePath();
+      ctx.fillStyle = ov.strokeColor || '#f59e0b';
+      ctx.fill();
+    } else if (ov.type === 'callout') {
+      // Rounded rect body
+      const r = Math.min(10, w * 0.05, h * 0.1);
+      const pointerH = Math.min(15, h * 0.2);
+      const bodyH = h - pointerH;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + bodyH - r);
+      ctx.quadraticCurveTo(x + w, y + bodyH, x + w - r, y + bodyH);
+      // Pointer
+      ctx.lineTo(x + w * 0.35, y + bodyH);
+      ctx.lineTo(x + w * 0.2, y + h);
+      ctx.lineTo(x + w * 0.25, y + bodyH);
+      ctx.lineTo(x + r, y + bodyH);
+      ctx.quadraticCurveTo(x, y + bodyH, x, y + bodyH - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fillStyle = ov.fillColor || '#fbbf24';
+      ctx.fill();
+      // Callout text
+      if (ov.text) {
+        const cfs = Math.max(8, Math.round((ov.fontSize || 16) * (canvas.width / 933)));
+        ctx.font = `600 ${cfs}px 'Inter', sans-serif`;
+        ctx.fillStyle = ov.color || '#000';
+        ctx.textAlign = 'center';
+        ctx.fillText(ov.text, x + w / 2, y + bodyH / 2 + cfs / 3, w - 16);
+      }
+    } else if (ov.type === 'freehand') {
+      if (ov.points && ov.points.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(ov.points[0].x * canvas.width, ov.points[0].y * canvas.height);
+        for (let p = 1; p < ov.points.length; p++) {
+          ctx.lineTo(ov.points[p].x * canvas.width, ov.points[p].y * canvas.height);
+        }
+        ctx.strokeStyle = ov.color || '#ef4444';
+        ctx.lineWidth = ov.lineWidth || 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.setLineDash([]);
+        ctx.stroke();
+      }
     }
 
     ctx.globalAlpha = 1;
@@ -2162,9 +2634,11 @@ function renderOverlayList() {
   list.innerHTML = overlays.map((ov, i) => {
     const isText = ov.type === 'text';
     const isImage = ov.type === 'image';
-    const dotColor = isText ? (ov.color || '#fff') : isImage ? '#a78bfa' : (ov.fillColor || '#2563EB');
-    const typeName = isText ? 'Text' : isImage ? 'Image' : ov.type === 'rect' ? 'Rectangle' : ov.type;
-    const preview = isText ? (ov.text || '--') : isImage ? 'Image overlay' : `Fill: ${ov.fillColor || '#2563EB'}`;
+    const typeNames = { text:'Text', image:'Image', rect:'Rectangle', circle:'Circle', line:'Arrow/Line', callout:'Callout', freehand:'Freehand' };
+    const dotColors = { text: ov.color||'#fff', image:'#a78bfa', rect: ov.fillColor||'#2563EB', circle: ov.fillColor||'#8b5cf6', line: ov.strokeColor||'#f59e0b', callout: ov.fillColor||'#fbbf24', freehand: ov.color||'#ef4444' };
+    const dotColor = dotColors[ov.type] || '#888';
+    const typeName = typeNames[ov.type] || ov.type;
+    const preview = isText ? (ov.text || '--') : isImage ? 'Image overlay' : ov.type === 'callout' ? (ov.text||'Callout') : ov.type === 'freehand' ? `${(ov.points||[]).length} points` : `Fill: ${ov.fillColor || ov.strokeColor || '#2563EB'}`;
     return `
     <div class="ov-item ${i === selectedIdx ? 'selected' : ''}" onclick="selectOverlay(${i})">
       <div class="ov-header">
@@ -2197,8 +2671,9 @@ function showPropsForm(ov) {
   const isText = ov.type === 'text';
   const isImage = ov.type === 'image';
   document.getElementById('field-text').style.display    = isText ? '' : 'none';
+  const isShape = ['rect','circle','line','callout','freehand'].includes(ov.type);
   document.getElementById('field-bgcolor').style.display = isText ? '' : 'none';
-  document.getElementById('field-fillcolor').style.display = (!isText && !isImage) ? '' : 'none';
+  document.getElementById('field-fillcolor').style.display = (isShape && !isText && !isImage) ? '' : 'none';
   document.getElementById('field-imgsrc').style.display = isImage ? '' : 'none';
 
   if (isText) {
@@ -2225,7 +2700,7 @@ function showPropsForm(ov) {
     document.getElementById('prop-outlinecolor').value = ov.outlineColor || '#000000';
     document.getElementById('prop-autofit').checked = ov.autoFit || false;
   } else if (!isImage) {
-    document.getElementById('prop-fillcolor').value = ov.fillColor || '#2563EB';
+    document.getElementById('prop-fillcolor').value = ov.fillColor || ov.strokeColor || ov.color || '#2563EB';
   }
   document.getElementById('prop-opacity').value = ov.opacity ?? 1;
   document.getElementById('opacity-val').textContent = Math.round((ov.opacity ?? 1) * 100) + '%';
@@ -2277,10 +2752,11 @@ function updatePropsForm() {
 // TABS
 // ══════════════════════════════════════════════════════════════════════════
 function switchTab(name) {
-  ['overlays','props','notes'].forEach(t => {
+  ['overlays','props','notes','filters','comments'].forEach(t => {
     document.getElementById(`panel-${t}`).style.display = t === name ? '' : 'none';
     document.getElementById(`tab-${t}`)?.classList.toggle('active', t === name);
   });
+  if (name === 'comments') loadComments();
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -2786,6 +3262,631 @@ function initThumbDrag() {
     }
   });
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXPORT PNG ZIP
+// ══════════════════════════════════════════════════════════════════════════
+async function exportPNGZip() {
+  await saveCurrentSlide(true);
+  showLoading('Exporting PNG slides...');
+  try {
+    const resp = await fetch('/api/export-png-zip', { method: 'POST' });
+    hideLoading();
+    if (resp.ok) {
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'slides_png.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('PNG ZIP downloaded!', 'success');
+    } else {
+      showToast('PNG export failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('PNG export error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXPORT GIF
+// ══════════════════════════════════════════════════════════════════════════
+async function exportGIF() {
+  const duration = prompt('Duration per slide in milliseconds (default 2000):', '2000');
+  if (duration === null) return;
+  const dur = parseInt(duration) || 2000;
+  await saveCurrentSlide(true);
+  showLoading('Generating animated GIF...');
+  try {
+    const resp = await fetch('/api/export-gif', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration: dur })
+    });
+    hideLoading();
+    if (resp.ok) {
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'slides_animated.gif';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('GIF downloaded!', 'success');
+    } else {
+      showToast('GIF export failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('GIF export error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// IMAGE FILTERS
+// ══════════════════════════════════════════════════════════════════════════
+async function applyFilter(filter, value) {
+  showLoading(`Applying ${filter}...`);
+  try {
+    const resp = await fetch(`/api/slide/${currentSlide}/filter`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filter, value })
+    });
+    hideLoading();
+    const data = await resp.json();
+    if (data.ok || resp.ok) {
+      // Reload slide image with cache bust
+      const pad = String(currentSlide).padStart(2, '0');
+      slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
+      const thumb = document.querySelector(`#thumb-${currentSlide} img`);
+      if (thumb) thumb.src = slideImg.src;
+      showToast(`${filter} applied!`, 'success');
+    } else {
+      showToast(data.error || 'Filter failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Filter error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// QR CODE GENERATOR
+// ══════════════════════════════════════════════════════════════════════════
+function openQRModal() {
+  document.getElementById('qr-modal').classList.add('show');
+  document.getElementById('qr-url').focus();
+}
+
+async function generateQR() {
+  const url = document.getElementById('qr-url').value.trim();
+  if (!url) { showToast('Enter a URL', 'error'); return; }
+  showLoading('Generating QR code...');
+  try {
+    const resp = await fetch('/api/qr-generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await resp.json();
+    hideLoading();
+    if (data.src) {
+      pushUndo();
+      overlays.push({ type: 'image', x: 0.7, y: 0.7, w: 0.2, h: 0.2 * (16/9), src: data.src, opacity: 1 });
+      preloadSingleImage(overlays.length - 1);
+      selectOverlay(overlays.length - 1);
+      renderOverlayList();
+      renderOverlays();
+      markDirty();
+      document.getElementById('qr-modal').classList.remove('show');
+      showToast('QR code added!', 'success');
+    } else {
+      showToast(data.error || 'QR generation failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('QR error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// WATERMARK
+// ══════════════════════════════════════════════════════════════════════════
+function openWatermarkModal() {
+  document.getElementById('watermark-modal').classList.add('show');
+}
+
+async function applyWatermark() {
+  const text = document.getElementById('wm-text').value.trim();
+  if (!text) { showToast('Enter watermark text', 'error'); return; }
+  const position = document.getElementById('wm-position').value;
+  const opacity = parseFloat(document.getElementById('wm-opacity').value);
+  showLoading('Applying watermark...');
+  try {
+    const resp = await fetch('/api/watermark', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'text', text, opacity, position })
+    });
+    hideLoading();
+    const data = await resp.json();
+    if (data.ok || resp.ok) {
+      document.getElementById('watermark-modal').classList.remove('show');
+      // Reload all slide images
+      for (let i = 1; i <= NUM_SLIDES; i++) {
+        const pad = String(i).padStart(2, '0');
+        const thumb = document.querySelector(`#thumb-${i} img`);
+        if (thumb) thumb.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
+      }
+      const pad = String(currentSlide).padStart(2, '0');
+      slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
+      showToast('Watermark applied!', 'success');
+    } else {
+      showToast(data.error || 'Watermark failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Watermark error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CROP TOOL
+// ══════════════════════════════════════════════════════════════════════════
+let cropMode = false;
+let cropStart = null;
+let cropRect = null;
+
+function startCrop() {
+  cropMode = true;
+  cropStart = null;
+  cropRect = null;
+  canvas.style.cursor = 'crosshair';
+  showToast('Draw a crop rectangle on the slide', 'info', 3000);
+}
+
+canvas.addEventListener('mousedown', function cropMouseDown(e) {
+  if (!cropMode || e.button !== 0) return;
+  e.stopImmediatePropagation();
+  cropStart = { x: normX(e.clientX), y: normY(e.clientY) };
+}, true);
+
+canvas.addEventListener('mousemove', function cropMouseMove(e) {
+  if (!cropMode || !cropStart) return;
+  e.stopImmediatePropagation();
+  const nx = normX(e.clientX), ny = normY(e.clientY);
+  cropRect = {
+    x: Math.min(cropStart.x, nx), y: Math.min(cropStart.y, ny),
+    w: Math.abs(nx - cropStart.x), h: Math.abs(ny - cropStart.y)
+  };
+  renderOverlays();
+  // Draw crop rect
+  ctx.save();
+  ctx.strokeStyle = '#34d399';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 4]);
+  ctx.strokeRect(cropRect.x * canvas.width, cropRect.y * canvas.height, cropRect.w * canvas.width, cropRect.h * canvas.height);
+  // Dim outside
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(0, 0, canvas.width, cropRect.y * canvas.height);
+  ctx.fillRect(0, (cropRect.y + cropRect.h) * canvas.height, canvas.width, canvas.height);
+  ctx.fillRect(0, cropRect.y * canvas.height, cropRect.x * canvas.width, cropRect.h * canvas.height);
+  ctx.fillRect((cropRect.x + cropRect.w) * canvas.width, cropRect.y * canvas.height, canvas.width, cropRect.h * canvas.height);
+  ctx.restore();
+}, true);
+
+canvas.addEventListener('mouseup', function cropMouseUp(e) {
+  if (!cropMode || !cropStart) return;
+  e.stopImmediatePropagation();
+  cropStart = null;
+  if (cropRect && cropRect.w > 0.02 && cropRect.h > 0.02) {
+    if (confirm('Apply this crop to the slide?')) {
+      applyCrop(cropRect);
+    }
+  }
+  cropMode = false;
+  cropRect = null;
+  canvas.style.cursor = currentTool === 'select' ? 'default' : 'crosshair';
+  renderOverlays();
+}, true);
+
+async function applyCrop(rect) {
+  showLoading('Cropping slide...');
+  try {
+    const resp = await fetch(`/api/slide/${currentSlide}/crop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x: rect.x, y: rect.y, w: rect.w, h: rect.h })
+    });
+    hideLoading();
+    const data = await resp.json();
+    if (data.ok || resp.ok) {
+      const pad = String(currentSlide).padStart(2, '0');
+      slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
+      const thumb = document.querySelector(`#thumb-${currentSlide} img`);
+      if (thumb) thumb.src = slideImg.src;
+      showToast('Slide cropped!', 'success');
+    } else {
+      showToast(data.error || 'Crop failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Crop error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// ROTATE SLIDE
+// ══════════════════════════════════════════════════════════════════════════
+async function rotateSlide(angle) {
+  showLoading('Rotating slide...');
+  try {
+    const resp = await fetch(`/api/slide/${currentSlide}/rotate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ angle })
+    });
+    hideLoading();
+    const data = await resp.json();
+    if (data.ok || resp.ok) {
+      const pad = String(currentSlide).padStart(2, '0');
+      slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
+      const thumb = document.querySelector(`#thumb-${currentSlide} img`);
+      if (thumb) thumb.src = slideImg.src;
+      showToast(`Rotated ${angle === 90 ? 'CW' : 'CCW'}!`, 'success');
+    } else {
+      showToast(data.error || 'Rotate failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Rotate error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// FIND & REPLACE
+// ══════════════════════════════════════════════════════════════════════════
+function openFindReplaceModal() {
+  document.getElementById('findreplace-modal').classList.add('show');
+  document.getElementById('fr-find').focus();
+  document.getElementById('fr-result').textContent = '';
+}
+
+async function doFindReplace() {
+  const find = document.getElementById('fr-find').value;
+  const replace = document.getElementById('fr-replace').value;
+  if (!find) { showToast('Enter search text', 'error'); return; }
+  showLoading('Finding & replacing...');
+  try {
+    const resp = await fetch('/api/find-replace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ find, replace })
+    });
+    hideLoading();
+    const data = await resp.json();
+    if (data.replacements !== undefined) {
+      document.getElementById('fr-result').textContent = `Replaced ${data.replacements} occurrence(s)`;
+      if (data.replacements > 0) {
+        // Reload current slide
+        const pad = String(currentSlide).padStart(2, '0');
+        slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
+        showToast(`${data.replacements} replacement(s) made`, 'success');
+      } else {
+        showToast('No matches found', 'info');
+      }
+    } else {
+      showToast(data.error || 'Find/replace failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Find/replace error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// VERSION HISTORY
+// ══════════════════════════════════════════════════════════════════════════
+function openHistoryModal() {
+  document.getElementById('history-modal').classList.add('show');
+  loadHistory();
+}
+
+async function loadHistory() {
+  const listEl = document.getElementById('history-list');
+  listEl.innerHTML = '<div class="empty-state" style="padding:16px">Loading...</div>';
+  try {
+    const resp = await fetch('/api/history');
+    const data = await resp.json();
+    const versions = data.versions || [];
+    if (versions.length === 0) {
+      listEl.innerHTML = '<div class="empty-state" style="padding:16px">No saved versions yet</div>';
+      return;
+    }
+    listEl.innerHTML = versions.map(v => `
+      <div class="list-item" onclick="restoreVersion('${v.version}')">
+        <div>
+          <div class="list-item-name">${v.version}</div>
+          <div class="list-item-meta">${v.slides || '?'} slides</div>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div class="empty-state" style="padding:16px">Failed to load history</div>';
+  }
+}
+
+async function saveVersion() {
+  await saveCurrentSlide(true);
+  showLoading('Saving version...');
+  try {
+    const resp = await fetch('/api/history/save', { method: 'POST' });
+    hideLoading();
+    const data = await resp.json();
+    if (data.version) {
+      showToast(`Version saved: ${data.version}`, 'success');
+      loadHistory();
+    } else {
+      showToast(data.error || 'Save version failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function restoreVersion(version) {
+  if (!confirm(`Restore version "${version}"? Current changes will be overwritten.`)) return;
+  showLoading('Restoring version...');
+  try {
+    const resp = await fetch('/api/history/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version })
+    });
+    hideLoading();
+    const data = await resp.json();
+    if (data.ok || resp.ok) {
+      document.getElementById('history-modal').classList.remove('show');
+      showToast('Version restored! Reloading...', 'success');
+      setTimeout(() => location.reload(), 800);
+    } else {
+      showToast(data.error || 'Restore failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Restore error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// TEMPLATES
+// ══════════════════════════════════════════════════════════════════════════
+function openTemplatesModal() {
+  document.getElementById('templates-modal').classList.add('show');
+  loadTemplates();
+}
+
+async function loadTemplates() {
+  const listEl = document.getElementById('templates-list');
+  listEl.innerHTML = '<div class="empty-state" style="padding:16px">Loading...</div>';
+  try {
+    const resp = await fetch('/api/templates');
+    const data = await resp.json();
+    const templates = data.templates || [];
+    if (templates.length === 0) {
+      listEl.innerHTML = '<div class="empty-state" style="padding:16px">No templates saved yet</div>';
+      return;
+    }
+    listEl.innerHTML = templates.map(t => `
+      <div class="list-item">
+        <div onclick="loadTemplate('${t.name.replace(/'/g, "\\'")}')" style="flex:1;cursor:pointer">
+          <div class="list-item-name">${t.name}</div>
+          <div class="list-item-meta">${t.slides || '?'} slides${t.created ? ' &middot; ' + t.created : ''}</div>
+        </div>
+        <div class="list-item-actions">
+          <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteTemplate('${t.name.replace(/'/g, "\\'")}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+          </button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div class="empty-state" style="padding:16px">Failed to load templates</div>';
+  }
+}
+
+async function saveTemplate() {
+  const name = document.getElementById('tpl-name').value.trim();
+  if (!name) { showToast('Enter a template name', 'error'); return; }
+  await saveCurrentSlide(true);
+  showLoading('Saving template...');
+  try {
+    const resp = await fetch('/api/templates/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    hideLoading();
+    const data = await resp.json();
+    if (data.ok || resp.ok) {
+      showToast(`Template "${name}" saved!`, 'success');
+      document.getElementById('tpl-name').value = '';
+      loadTemplates();
+    } else {
+      showToast(data.error || 'Save template failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function loadTemplate(name) {
+  if (!confirm(`Load template "${name}"? Current presentation will be replaced.`)) return;
+  showLoading('Loading template...');
+  try {
+    const resp = await fetch('/api/templates/load', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    hideLoading();
+    const data = await resp.json();
+    if (data.ok || resp.ok) {
+      document.getElementById('templates-modal').classList.remove('show');
+      showToast('Template loaded! Reloading...', 'success');
+      setTimeout(() => location.reload(), 800);
+    } else {
+      showToast(data.error || 'Load template failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Load error: ' + e.message, 'error');
+  }
+}
+
+async function deleteTemplate(name) {
+  if (!confirm(`Delete template "${name}"?`)) return;
+  try {
+    const resp = await fetch('/api/templates/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await resp.json();
+    if (data.ok || resp.ok) {
+      showToast('Template deleted', 'success');
+      loadTemplates();
+    } else {
+      showToast(data.error || 'Delete failed', 'error');
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// COMMENTS
+// ══════════════════════════════════════════════════════════════════════════
+let slideComments = [];
+
+async function loadComments() {
+  try {
+    const resp = await fetch(`/api/comments/${currentSlide}`);
+    const data = await resp.json();
+    slideComments = data.comments || [];
+    renderCommentsList();
+    renderCommentPins();
+  } catch (e) {
+    slideComments = [];
+  }
+}
+
+function renderCommentsList() {
+  const listEl = document.getElementById('comments-list');
+  if (slideComments.length === 0) {
+    listEl.innerHTML = `<div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:32px;height:32px;opacity:0.3"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+      <div>No comments yet</div>
+      <div style="font-size:11px;margin-top:4px">Use the comment tool to add pins on the canvas</div>
+    </div>`;
+    return;
+  }
+  listEl.innerHTML = slideComments.map((c, i) => `
+    <div class="comment-item ${c.resolved ? 'resolved' : ''}">
+      <div class="comment-author">${c.author || 'User'}</div>
+      <div class="comment-text">${c.text}</div>
+      <div class="comment-meta">${c.timestamp || ''}</div>
+      <div class="comment-actions">
+        ${!c.resolved ? `<button class="btn btn-glass btn-sm" onclick="resolveComment(${i})">Resolve</button>` : '<span style="font-size:11px;color:var(--green)">Resolved</span>'}
+        <button class="btn btn-danger btn-sm" onclick="deleteComment(${i})">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderCommentPins() {
+  // Remove existing pins
+  document.querySelectorAll('.comment-pin').forEach(p => p.remove());
+  slideComments.forEach((c, i) => {
+    if (c.x !== undefined && c.y !== undefined) {
+      const pin = document.createElement('div');
+      pin.className = 'comment-pin' + (c.resolved ? ' resolved' : '');
+      pin.textContent = i + 1;
+      pin.style.left = (c.x * 100) + '%';
+      pin.style.top = (c.y * 100) + '%';
+      pin.title = c.text;
+      pin.onclick = () => { switchTab('comments'); };
+      container.appendChild(pin);
+    }
+  });
+}
+
+function submitComment() {
+  const text = document.getElementById('comment-input').value.trim();
+  if (!text || !pendingCommentPos) { cancelComment(); return; }
+  document.getElementById('comment-popup').style.display = 'none';
+  const body = { text, x: pendingCommentPos.x, y: pendingCommentPos.y, author: 'User' };
+  fetch(`/api/comments/${currentSlide}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(resp => resp.json()).then(data => {
+    loadComments();
+    showToast('Comment added!', 'success');
+  }).catch(e => {
+    showToast('Comment failed: ' + e.message, 'error');
+  });
+  pendingCommentPos = null;
+  setTool('select');
+}
+
+function cancelComment() {
+  document.getElementById('comment-popup').style.display = 'none';
+  pendingCommentPos = null;
+  setTool('select');
+}
+
+async function resolveComment(index) {
+  try {
+    await fetch(`/api/comments/${currentSlide}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index })
+    });
+    loadComments();
+    showToast('Comment resolved', 'success');
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function deleteComment(index) {
+  if (!confirm('Delete this comment?')) return;
+  try {
+    await fetch(`/api/comments/${currentSlide}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index })
+    });
+    loadComments();
+    showToast('Comment deleted', 'success');
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+// Close modals with Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-backdrop.show').forEach(m => m.classList.remove('show'));
+    cancelComment();
+  }
+});
 </script>
 </body>
 </html>

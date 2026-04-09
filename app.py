@@ -932,6 +932,683 @@ def _add_overlay(slide, ov, slide_w, slide_h):
         line_shape.line.width = Pt(2)
 
 
+# ── Export as PNG ZIP ───────────────────────────────────────────────────────
+
+@app.route("/api/export-png-zip", methods=["POST"])
+def export_png_zip():
+    """Export all slides as a ZIP of PNG images."""
+    import zipfile
+    slide_files = _get_slide_files()
+    if not slide_files:
+        return jsonify({"error": "No slides"}), 400
+
+    zip_path = EXPORT_DIR / "slides_export.zip"
+    with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
+        for sf in slide_files:
+            img = Image.open(sf).convert("RGB")
+            png_buf = io.BytesIO()
+            img.save(png_buf, format="PNG")
+            png_buf.seek(0)
+            zf.writestr(sf.stem + ".png", png_buf.read())
+
+    return send_file(str(zip_path), as_attachment=True, download_name="slides_export.zip")
+
+
+# ── Export as GIF ───────────────────────────────────────────────────────────
+
+@app.route("/api/export-gif", methods=["POST"])
+def export_gif():
+    """Export slides as an animated GIF slideshow."""
+    payload = request.json or {}
+    duration_ms = int(payload.get("duration", 2000))  # ms per slide
+
+    slide_files = _get_slide_files()
+    if not slide_files:
+        return jsonify({"error": "No slides"}), 400
+
+    frames = []
+    for sf in slide_files:
+        img = Image.open(sf).convert("RGB")
+        img = img.resize((800, 450), Image.BILINEAR)
+        frames.append(img)
+
+    gif_path = EXPORT_DIR / "slides_export.gif"
+    frames[0].save(str(gif_path), save_all=True, append_images=frames[1:],
+                   duration=duration_ms, loop=0, optimize=True)
+
+    return send_file(str(gif_path), as_attachment=True, download_name="slides_export.gif")
+
+
+# ── Image Filters ───────────────────────────────────────────────────────────
+
+@app.route("/api/slide/<int:num>/filter", methods=["POST"])
+def apply_filter(num):
+    """Apply image filter to a slide. Filters: brightness, contrast, blur, grayscale, sepia."""
+    from PIL import ImageEnhance, ImageFilter as PilFilter
+
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide"}), 400
+
+    payload = request.json
+    filter_type = payload.get("filter", "")
+    value = float(payload.get("value", 1.0))
+
+    img = Image.open(slide_files[num - 1]).convert("RGB")
+
+    if filter_type == "brightness":
+        img = ImageEnhance.Brightness(img).enhance(value)
+    elif filter_type == "contrast":
+        img = ImageEnhance.Contrast(img).enhance(value)
+    elif filter_type == "saturation":
+        img = ImageEnhance.Color(img).enhance(value)
+    elif filter_type == "blur":
+        img = img.filter(PilFilter.GaussianBlur(radius=value))
+    elif filter_type == "sharpen":
+        img = ImageEnhance.Sharpness(img).enhance(value)
+    elif filter_type == "grayscale":
+        import cv2, numpy as np
+        arr = np.array(img)
+        gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+        img = Image.fromarray(cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB))
+    elif filter_type == "sepia":
+        import numpy as np
+        arr = np.array(img, dtype=np.float64)
+        sepia_filter = np.array([[0.393, 0.769, 0.189],
+                                  [0.349, 0.686, 0.168],
+                                  [0.272, 0.534, 0.131]])
+        sepia = arr @ sepia_filter.T
+        sepia = np.clip(sepia, 0, 255).astype(np.uint8)
+        img = Image.fromarray(sepia)
+    else:
+        return jsonify({"error": f"Unknown filter: {filter_type}"}), 400
+
+    img.save(str(slide_files[num - 1]), quality=95)
+    return jsonify({"ok": True})
+
+
+# ── Crop / Rotate Slide ─────────────────────────────────────────────────────
+
+@app.route("/api/slide/<int:num>/crop", methods=["POST"])
+def crop_slide(num):
+    """Crop a slide image. Expects normalized coords {x, y, w, h}."""
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide"}), 400
+
+    payload = request.json
+    img = Image.open(slide_files[num - 1]).convert("RGB")
+    w, h = img.size
+    x1 = int(payload["x"] * w)
+    y1 = int(payload["y"] * h)
+    x2 = int((payload["x"] + payload["w"]) * w)
+    y2 = int((payload["y"] + payload["h"]) * h)
+    img = img.crop((x1, y1, x2, y2))
+    # Resize back to standard dimensions
+    img = img.resize((SLIDE_W_PX, SLIDE_H_PX), Image.LANCZOS)
+    img.save(str(slide_files[num - 1]), quality=95)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/slide/<int:num>/rotate", methods=["POST"])
+def rotate_slide(num):
+    """Rotate a slide image. Expects {angle: 90/180/270}."""
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide"}), 400
+
+    angle = int(request.json.get("angle", 90))
+    img = Image.open(slide_files[num - 1]).convert("RGB")
+    img = img.rotate(-angle, expand=True)
+    img = img.resize((SLIDE_W_PX, SLIDE_H_PX), Image.LANCZOS)
+    img.save(str(slide_files[num - 1]), quality=95)
+    return jsonify({"ok": True})
+
+
+# ── QR Code Generation ──────────────────────────────────────────────────────
+
+@app.route("/api/qr-generate", methods=["POST"])
+def generate_qr():
+    """Generate a QR code as base64 PNG. Requires 'url' in payload."""
+    payload = request.json
+    url = payload.get("url", "")
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    try:
+        import qrcode
+        qr = qrcode.make(url)
+        buf = io.BytesIO()
+        qr.save(buf, format="PNG")
+    except ImportError:
+        # Fallback: generate simple QR-like placeholder
+        img = Image.new("RGB", (200, 200), "white")
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([10, 10, 190, 190], outline="black", width=3)
+        draw.text((40, 90), "QR", fill="black")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode()
+    return jsonify({"src": f"data:image/png;base64,{b64}"})
+
+
+# ── Custom Watermark ────────────────────────────────────────────────────────
+
+@app.route("/api/watermark", methods=["POST"])
+def add_watermark():
+    """Add a text or image watermark to all slides."""
+    payload = request.json
+    wm_type = payload.get("type", "text")  # "text" or "image"
+    wm_text = payload.get("text", "CONFIDENTIAL")
+    wm_opacity = float(payload.get("opacity", 0.15))
+    wm_position = payload.get("position", "center")  # center, bottom-right, tiled
+
+    slide_files = _get_slide_files()
+
+    for sf in slide_files:
+        img = Image.open(sf).convert("RGBA")
+        w, h = img.size
+
+        if wm_type == "text":
+            overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+            font_size = w // 15
+            font = _get_bake_font(font_size, bold=True, family="Arial")
+
+            alpha = int(wm_opacity * 255)
+
+            if wm_position == "tiled":
+                bbox = font.getbbox(wm_text)
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                for tx in range(0, w, tw + 100):
+                    for ty in range(0, h, th + 80):
+                        draw.text((tx, ty), wm_text, fill=(128, 128, 128, alpha), font=font)
+            elif wm_position == "center":
+                bbox = font.getbbox(wm_text)
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                draw.text(((w - tw) // 2, (h - th) // 2), wm_text, fill=(128, 128, 128, alpha), font=font)
+            elif wm_position == "bottom-right":
+                bbox = font.getbbox(wm_text)
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                draw.text((w - tw - 20, h - th - 20), wm_text, fill=(128, 128, 128, alpha), font=font)
+
+            img = Image.alpha_composite(img, overlay)
+
+        img.convert("RGB").save(str(sf), quality=95)
+
+    return jsonify({"ok": True})
+
+
+# ── Batch Processing ────────────────────────────────────────────────────────
+
+@app.route("/api/batch/upload", methods=["POST"])
+def batch_upload():
+    """Upload multiple PPTX files for batch processing."""
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"error": "No files"}), 400
+
+    UPLOAD_DIR.mkdir(exist_ok=True)
+    filenames = []
+    for f in files:
+        if f.filename.lower().endswith(".pptx"):
+            fname = secure_filename(f.filename)
+            f.save(str(UPLOAD_DIR / fname))
+            filenames.append(fname)
+
+    return jsonify({"ok": True, "files": filenames, "count": len(filenames)})
+
+
+@app.route("/api/batch/process", methods=["POST"])
+def batch_process():
+    """Process a batch of uploaded PPTX files — remove logos from all."""
+    payload = request.json
+    filenames = payload.get("files", [])
+    results = []
+
+    for fname in filenames:
+        fpath = UPLOAD_DIR / secure_filename(fname)
+        if not fpath.exists():
+            results.append({"file": fname, "status": "not_found"})
+            continue
+        try:
+            process_uploaded_pptx(fpath)
+            results.append({"file": fname, "status": "ok", "slides": NUM_SLIDES})
+        except Exception as e:
+            results.append({"file": fname, "status": "error", "error": str(e)})
+
+    return jsonify({"ok": True, "results": results})
+
+
+# ── Templates ───────────────────────────────────────────────────────────────
+
+TEMPLATES_DIR = BASE_DIR / "templates_saved"
+TEMPLATES_DIR.mkdir(exist_ok=True)
+
+
+@app.route("/api/templates", methods=["GET"])
+def list_templates():
+    """List saved slide templates."""
+    templates = []
+    for tf in sorted(TEMPLATES_DIR.glob("*.json")):
+        data = json.loads(tf.read_text())
+        templates.append({"name": tf.stem, "slides": data.get("slide_count", 0),
+                          "created": data.get("created", "")})
+    return jsonify({"templates": templates})
+
+
+@app.route("/api/templates/save", methods=["POST"])
+def save_template():
+    """Save current slides + overlays as a named template."""
+    payload = request.json
+    name = secure_filename(payload.get("name", "untitled"))
+
+    slide_files = _get_slide_files()
+    data = load_data()
+
+    # Copy slide images to template dir
+    tpl_dir = TEMPLATES_DIR / name
+    tpl_dir.mkdir(exist_ok=True)
+    for sf in slide_files:
+        shutil.copy2(str(sf), str(tpl_dir / sf.name))
+
+    # Save overlay data
+    import datetime
+    meta = {"slide_count": len(slide_files), "data": data,
+            "created": datetime.datetime.now().isoformat()}
+    (TEMPLATES_DIR / f"{name}.json").write_text(json.dumps(meta, indent=2))
+
+    return jsonify({"ok": True, "name": name})
+
+
+@app.route("/api/templates/load", methods=["POST"])
+def load_template():
+    """Load a template — restore slide images + overlays."""
+    payload = request.json
+    name = secure_filename(payload.get("name", ""))
+
+    tpl_dir = TEMPLATES_DIR / name
+    meta_file = TEMPLATES_DIR / f"{name}.json"
+
+    if not meta_file.exists():
+        return jsonify({"error": "Template not found"}), 404
+
+    # Clear current slides
+    for f in SLIDES_DIR.glob("slide-*.jpg"):
+        f.unlink()
+
+    # Copy template slides
+    for sf in sorted(tpl_dir.glob("slide-*.jpg")):
+        shutil.copy2(str(sf), str(SLIDES_DIR / sf.name))
+
+    # Restore overlay data
+    meta = json.loads(meta_file.read_text())
+    save_data(meta.get("data", {}))
+
+    global SLIDE_FILES, NUM_SLIDES
+    SLIDE_FILES = _get_slide_files()
+    NUM_SLIDES = len(SLIDE_FILES)
+
+    return jsonify({"ok": True, "slides": NUM_SLIDES})
+
+
+@app.route("/api/templates/delete", methods=["POST"])
+def delete_template():
+    """Delete a saved template."""
+    name = secure_filename(request.json.get("name", ""))
+    tpl_dir = TEMPLATES_DIR / name
+    meta_file = TEMPLATES_DIR / f"{name}.json"
+    if tpl_dir.exists():
+        shutil.rmtree(str(tpl_dir))
+    meta_file.unlink(missing_ok=True)
+    return jsonify({"ok": True})
+
+
+# ── Version History ─────────────────────────────────────────────────────────
+
+HISTORY_DIR = BASE_DIR / "history"
+HISTORY_DIR.mkdir(exist_ok=True)
+
+
+@app.route("/api/history/save", methods=["POST"])
+def save_version():
+    """Save a snapshot of current slide state."""
+    import datetime
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    version_dir = HISTORY_DIR / ts
+
+    version_dir.mkdir(exist_ok=True)
+    for sf in _get_slide_files():
+        shutil.copy2(str(sf), str(version_dir / sf.name))
+
+    data = load_data()
+    (version_dir / "data.json").write_text(json.dumps(data, indent=2))
+
+    return jsonify({"ok": True, "version": ts})
+
+
+@app.route("/api/history", methods=["GET"])
+def list_versions():
+    """List all saved versions."""
+    versions = []
+    for vd in sorted(HISTORY_DIR.iterdir(), reverse=True):
+        if vd.is_dir():
+            slides = len(list(vd.glob("slide-*.jpg")))
+            versions.append({"version": vd.name, "slides": slides})
+    return jsonify({"versions": versions})
+
+
+@app.route("/api/history/restore", methods=["POST"])
+def restore_version():
+    """Restore a previous version."""
+    version = secure_filename(request.json.get("version", ""))
+    version_dir = HISTORY_DIR / version
+    if not version_dir.exists():
+        return jsonify({"error": "Version not found"}), 404
+
+    for f in SLIDES_DIR.glob("slide-*.jpg"):
+        f.unlink()
+    for sf in sorted(version_dir.glob("slide-*.jpg")):
+        shutil.copy2(str(sf), str(SLIDES_DIR / sf.name))
+
+    data_file = version_dir / "data.json"
+    if data_file.exists():
+        save_data(json.loads(data_file.read_text()))
+
+    global SLIDE_FILES, NUM_SLIDES
+    SLIDE_FILES = _get_slide_files()
+    NUM_SLIDES = len(SLIDE_FILES)
+
+    return jsonify({"ok": True, "slides": NUM_SLIDES})
+
+
+# ── Comments / Annotations ──────────────────────────────────────────────────
+
+COMMENTS_FILE = BASE_DIR / "comments.json"
+
+
+def _load_comments():
+    if COMMENTS_FILE.exists():
+        return json.loads(COMMENTS_FILE.read_text())
+    return {}
+
+
+def _save_comments(data):
+    COMMENTS_FILE.write_text(json.dumps(data, indent=2))
+
+
+@app.route("/api/comments/<int:num>", methods=["GET"])
+def get_comments(num):
+    data = _load_comments()
+    return jsonify({"comments": data.get(str(num), [])})
+
+
+@app.route("/api/comments/<int:num>", methods=["POST"])
+def add_comment(num):
+    payload = request.json
+    data = _load_comments()
+    import datetime
+    comment = {
+        "text": payload.get("text", ""),
+        "x": payload.get("x", 0.5),
+        "y": payload.get("y", 0.5),
+        "author": payload.get("author", "User"),
+        "timestamp": datetime.datetime.now().isoformat(),
+        "resolved": False,
+    }
+    data.setdefault(str(num), []).append(comment)
+    _save_comments(data)
+    return jsonify({"ok": True, "comment": comment})
+
+
+@app.route("/api/comments/<int:num>/resolve", methods=["POST"])
+def resolve_comment(num):
+    idx = int(request.json.get("index", 0))
+    data = _load_comments()
+    comments = data.get(str(num), [])
+    if 0 <= idx < len(comments):
+        comments[idx]["resolved"] = True
+        _save_comments(data)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/comments/<int:num>/delete", methods=["POST"])
+def delete_comment(num):
+    idx = int(request.json.get("index", 0))
+    data = _load_comments()
+    comments = data.get(str(num), [])
+    if 0 <= idx < len(comments):
+        comments.pop(idx)
+        _save_comments(data)
+    return jsonify({"ok": True})
+
+
+# ── Find & Replace ──────────────────────────────────────────────────────────
+
+@app.route("/api/find-replace", methods=["POST"])
+def find_replace():
+    """Find and replace text in overlays across all slides."""
+    payload = request.json
+    find_text = payload.get("find", "")
+    replace_text = payload.get("replace", "")
+    if not find_text:
+        return jsonify({"error": "No search text"}), 400
+
+    data = load_data()
+    count = 0
+    for slide_num, slide_data in data.items():
+        for ov in slide_data.get("overlays", []):
+            if ov.get("type") == "text" and find_text in ov.get("text", ""):
+                ov["text"] = ov["text"].replace(find_text, replace_text)
+                count += 1
+    save_data(data)
+    return jsonify({"ok": True, "replacements": count})
+
+
+# ── Video Trim ──────────────────────────────────────────────────────────────
+
+@app.route("/api/video/trim", methods=["POST"])
+def trim_video():
+    """Trim a video to start/end times (in seconds)."""
+    payload = request.json
+    fname = payload.get("filename", "")
+    start = float(payload.get("start", 0))
+    end = float(payload.get("end", 0))
+
+    video_path = VIDEO_DIR / secure_filename(fname)
+    if not video_path.exists():
+        return jsonify({"error": "Video not found"}), 400
+
+    try:
+        from moviepy import VideoFileClip
+        clip = VideoFileClip(str(video_path))
+        if end <= 0 or end > clip.duration:
+            end = clip.duration
+        trimmed = clip.subclipped(start, end)
+        out_name = f"trimmed_{secure_filename(fname)}"
+        if not out_name.lower().endswith('.mp4'):
+            out_name = out_name.rsplit('.', 1)[0] + '.mp4'
+        out_path = VIDEO_DIR / out_name
+        trimmed.write_videofile(str(out_path), codec='libx264', audio_codec='aac', logger=None)
+        trimmed.close()
+        clip.close()
+        return jsonify({"ok": True, "output": out_name, "duration": round(end - start, 1)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Auto Logo Detection in Video ────────────────────────────────────────────
+
+@app.route("/api/video/detect-logo", methods=["POST"])
+def detect_video_logo():
+    """Try to auto-detect logo position in a video frame using edge/contour analysis."""
+    import cv2
+    import numpy as np
+
+    payload = request.json
+    fname = payload.get("filename", "")
+    video_path = VIDEO_DIR / secure_filename(fname)
+    if not video_path.exists():
+        return jsonify({"error": "Video not found"}), 400
+
+    cap = cv2.VideoCapture(str(video_path))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 30)
+    ret, frame = cap.read()
+    h, w = frame.shape[:2]
+    cap.release()
+
+    if not ret:
+        return jsonify({"error": "Cannot read frame"}), 500
+
+    # Look for small, consistent elements in corners (typical logo locations)
+    # Check bottom-right quadrant for text-like regions
+    corners = [
+        ("bottom-right", frame[int(h*0.85):, int(w*0.7):]),
+        ("bottom-left",  frame[int(h*0.85):, :int(w*0.3)]),
+        ("top-right",    frame[:int(h*0.15), int(w*0.7):]),
+        ("top-left",     frame[:int(h*0.15), :int(w*0.3)]),
+    ]
+
+    best = None
+    best_score = 0
+
+    for corner_name, roi in corners:
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
+        score = np.sum(edges > 0)
+        rh, rw = roi.shape[:2]
+        density = score / max(1, rh * rw)
+
+        if density > 0.02 and density < 0.5 and score > best_score:
+            best_score = score
+            if corner_name == "bottom-right":
+                best = {"x": 0.7, "y": 0.85, "w": 0.3, "h": 0.15}
+            elif corner_name == "bottom-left":
+                best = {"x": 0.0, "y": 0.85, "w": 0.3, "h": 0.15}
+            elif corner_name == "top-right":
+                best = {"x": 0.7, "y": 0.0, "w": 0.3, "h": 0.15}
+            elif corner_name == "top-left":
+                best = {"x": 0.0, "y": 0.0, "w": 0.3, "h": 0.15}
+
+    if not best:
+        best = {"x": 0.85, "y": 0.92, "w": 0.14, "h": 0.07}  # default bottom-right
+
+    return jsonify({"ok": True, "region": best})
+
+
+# ── Replace Logo (swap with custom image) ──────────────────────────────────
+
+@app.route("/api/video/replace-logo", methods=["POST"])
+def replace_video_logo():
+    """Replace logo in video with a custom image overlay."""
+    if "logo" not in request.files:
+        return jsonify({"error": "No logo image"}), 400
+
+    logo_file = request.files["logo"]
+    fname = request.form.get("filename", "")
+    lx = float(request.form.get("x", 0.85))
+    ly = float(request.form.get("y", 0.93))
+    lw_pct = float(request.form.get("w", 0.14))
+    lh_pct = float(request.form.get("h", 0.06))
+
+    video_path = VIDEO_DIR / secure_filename(fname)
+    if not video_path.exists():
+        return jsonify({"error": "Video not found"}), 400
+
+    # Read logo image
+    logo_img = Image.open(logo_file.stream).convert("RGBA")
+
+    import cv2
+    import numpy as np
+
+    cap = cv2.VideoCapture(str(video_path))
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    x1, y1 = int(lx * w), int(ly * h)
+    x2, y2 = min(w, int((lx + lw_pct) * w)), min(h, int((ly + lh_pct) * h))
+    logo_w, logo_h = x2 - x1, y2 - y1
+
+    # Resize logo to fit region
+    logo_resized = logo_img.resize((logo_w, logo_h), Image.LANCZOS)
+    logo_arr = np.array(logo_resized)
+
+    # Separate alpha channel
+    if logo_arr.shape[2] == 4:
+        logo_rgb = logo_arr[:, :, :3]
+        logo_alpha = logo_arr[:, :, 3:] / 255.0
+    else:
+        logo_rgb = logo_arr
+        logo_alpha = np.ones((logo_h, logo_w, 1))
+
+    # Convert RGB to BGR for OpenCV
+    logo_bgr = logo_rgb[:, :, ::-1]
+
+    out_name = f"branded_{secure_filename(fname)}"
+    if not out_name.lower().endswith('.mp4'):
+        out_name = out_name.rsplit('.', 1)[0] + '.mp4'
+    temp_path = VIDEO_DIR / f"_temp_{out_name}"
+    out_path = VIDEO_DIR / out_name
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (w, h))
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Alpha blend logo onto frame
+        roi = frame[y1:y2, x1:x2].astype(np.float64)
+        blended = roi * (1 - logo_alpha) + logo_bgr.astype(np.float64) * logo_alpha
+        frame[y1:y2, x1:x2] = blended.astype(np.uint8)
+        writer.write(frame)
+
+    cap.release()
+    writer.release()
+
+    # Mux audio
+    try:
+        from moviepy import VideoFileClip
+        original = VideoFileClip(str(video_path))
+        clean = VideoFileClip(str(temp_path))
+        if original.audio is not None:
+            final = clean.with_audio(original.audio)
+            final.write_videofile(str(out_path), codec='libx264', audio_codec='aac', logger=None)
+            final.close()
+        else:
+            clean.write_videofile(str(out_path), codec='libx264', logger=None)
+        original.close()
+        clean.close()
+        temp_path.unlink(missing_ok=True)
+    except Exception:
+        if temp_path.exists():
+            shutil.move(str(temp_path), str(out_path))
+
+    return jsonify({"ok": True, "output": out_name})
+
+
+# ── Batch Video Processing ──────────────────────────────────────────────────
+
+@app.route("/api/video/batch-upload", methods=["POST"])
+def batch_video_upload():
+    """Upload multiple video files."""
+    files = request.files.getlist("files")
+    filenames = []
+    for f in files:
+        fname = secure_filename(f.filename)
+        if fname:
+            f.save(str(VIDEO_DIR / fname))
+            filenames.append(fname)
+    return jsonify({"ok": True, "files": filenames})
+
+
 # ── Video Logo Removal ──────────────────────────────────────────────────────
 
 VIDEO_DIR = BASE_DIR / "videos"
@@ -1029,6 +1706,16 @@ def video_progress(job_id):
     return jsonify(job)
 
 
+@app.route("/api/video/stop/<job_id>", methods=["POST"])
+def stop_video_job(job_id):
+    """Request cancellation of a running video job."""
+    job = _video_jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    job["cancel"] = True
+    return jsonify({"ok": True})
+
+
 def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
     """Background worker for video logo removal."""
     import cv2
@@ -1070,6 +1757,11 @@ def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
             if not ret:
                 break
 
+            # Check for cancellation
+            if job.get("cancel"):
+                job["status"] = "cancelled"
+                break
+
             frame = cv2.inpaint(frame, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
             writer.write(frame)
             frame_num += 1
@@ -1084,6 +1776,12 @@ def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
 
         cap.release()
         writer.release()
+
+        # If cancelled, clean up and exit
+        if job.get("cancel"):
+            temp_path.unlink(missing_ok=True)
+            job["eta"] = 0
+            return
 
         # Mux audio
         job["status"] = "muxing_audio"
