@@ -621,7 +621,55 @@
     color: var(--text); padding: 3px 8px; border-radius: 5px;
   }
 
-  /* ── NEW: OCR regions highlight ────────────────────────────────────── */
+  /* ── Help modal ──────────────────────────────────────────────────── */
+  #help-modal {
+    position: fixed; inset: 0; z-index: 200; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(6px);
+  }
+  #help-modal.show { display: flex; }
+  .help-card {
+    background: rgba(16, 22, 42, 0.96); backdrop-filter: blur(24px);
+    border: 1px solid var(--glass-border-hover);
+    border-radius: 16px; width: 680px; max-width: 95vw;
+    max-height: 85vh; display: flex; flex-direction: column;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5); overflow: hidden;
+  }
+  .help-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 20px 24px; border-bottom: 1px solid var(--glass-border); flex-shrink: 0;
+  }
+  .help-header h2 { font-size: 18px; font-weight: 700; color: #fff; margin: 0; }
+  .help-body { overflow-y: auto; padding: 20px 24px 28px; flex: 1; }
+  .help-section { margin-bottom: 24px; }
+  .help-section h3 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--accent2); font-weight: 700; margin-bottom: 12px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--glass-border);
+  }
+  .help-step { display: flex; gap: 12px; margin-bottom: 10px; align-items: flex-start; }
+  .help-num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent-soft); border: 1px solid rgba(59,130,246,0.3);
+    color: var(--accent2); font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .help-step div { font-size: 13px; color: var(--text2); line-height: 1.5; }
+  .help-step strong { color: var(--text); }
+  .help-step em { color: var(--accent2); font-style: normal; font-weight: 600; }
+  .help-step kbd, .help-item kbd {
+    font-size: 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+    color: var(--accent2); padding: 1px 5px; border-radius: 3px; font-family: inherit; font-weight: 600;
+  }
+  .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .help-item {
+    font-size: 12px; color: var(--text2); padding: 8px 10px;
+    background: var(--surface); border-radius: var(--radius-xs);
+    border: 1px solid var(--glass-border); line-height: 1.4;
+  }
+  .help-item strong { color: var(--text); }
+
+  /* ── OCR regions highlight ──────────────────────────────────────────── */
   .ocr-badge {
     display: inline-flex; align-items: center; gap: 4px;
     background: rgba(59,130,246,0.15); color: var(--accent2);
@@ -802,6 +850,108 @@
   </div>
 </div>
 
+<!-- Help Modal -->
+<div id="help-modal">
+  <div class="help-card">
+    <div class="help-header">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:28px;height:28px;color:var(--accent2)"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div>
+        <h2>SlideCraft Help Guide</h2>
+        <p style="color:var(--text3);font-size:12px;margin:0">Everything you need to know to get started</p>
+      </div>
+      <button onclick="closeHelpModal()" style="margin-left:auto;background:none;border:none;color:var(--text3);cursor:pointer;font-size:20px;padding:4px">&times;</button>
+    </div>
+
+    <div class="help-body">
+      <div class="help-section">
+        <h3>Getting Started</h3>
+        <div class="help-step"><span class="help-num">1</span><div><strong>Upload a PPTX</strong><br>Click <em>Upload</em> in the header or drag & drop a .pptx file anywhere on the page.</div></div>
+        <div class="help-step"><span class="help-num">2</span><div><strong>Remove NotebookLM Logo</strong><br>Click <em>Remove Logo</em> to seamlessly erase the watermark from all slides using AI inpainting.</div></div>
+        <div class="help-step"><span class="help-num">3</span><div><strong>Edit & Export</strong><br>Add overlays, edit text, apply filters, then click <em>PPTX</em>, <em>PDF</em>, <em>PNG</em>, or <em>GIF</em> to export.</div></div>
+      </div>
+
+      <div class="help-section">
+        <h3>Editing Text in Slides</h3>
+        <div class="help-step"><span class="help-num">A</span><div><strong>OCR Method (Automatic)</strong><br>Click <em>OCR</em> in the toolbar. Text regions appear as blue dashed boxes. Click any box to cover the original and type replacement text. Adjust font, size, color in the Properties panel. Click <em>Apply</em> to burn changes into the image.</div></div>
+        <div class="help-step"><span class="help-num">B</span><div><strong>Cover & Type (Manual)</strong><br>Press <kbd>C</kbd> or select the Cover tool. Draw a rectangle over text you want to replace. The background color is auto-sampled. Type your new text, then click <em>Apply</em>.</div></div>
+        <div class="help-step"><span class="help-num">C</span><div><strong>Inline Editing</strong><br>Double-click any text overlay to edit it directly on the canvas.</div></div>
+      </div>
+
+      <div class="help-section">
+        <h3>Drawing & Shapes</h3>
+        <div class="help-grid">
+          <div class="help-item"><kbd>S</kbd> <strong>Select</strong> — Click to select, drag to move, handles to resize</div>
+          <div class="help-item"><kbd>T</kbd> <strong>Text</strong> — Draw a text box, type content</div>
+          <div class="help-item"><kbd>R</kbd> <strong>Rectangle</strong> — Draw a colored rectangle</div>
+          <div class="help-item"><kbd>C</kbd> <strong>Cover</strong> — Cover original text and replace</div>
+          <div class="help-item"><strong>Circle</strong> — Draw circles and ellipses</div>
+          <div class="help-item"><strong>Line</strong> — Draw lines with arrowheads</div>
+          <div class="help-item"><strong>Callout</strong> — Speech bubble callout shapes</div>
+          <div class="help-item"><strong>Freehand</strong> — Draw freely with pen tool</div>
+          <div class="help-item"><strong>Image</strong> — Upload and place images as overlays</div>
+        </div>
+      </div>
+
+      <div class="help-section">
+        <h3>Toolbar Guide</h3>
+        <div class="help-grid">
+          <div class="help-item"><strong>TOOLS</strong> — Select, Text, Rect, Circle, Line, Callout, Draw, Cover</div>
+          <div class="help-item"><strong>EDIT</strong> — Undo, Redo, Delete, Duplicate</div>
+          <div class="help-item"><strong>INSERT</strong> — Image, QR Code, Watermark</div>
+          <div class="help-item"><strong>SLIDE</strong> — OCR, Crop, Rotate, Snap Grid</div>
+          <div class="help-item"><strong>MANAGE</strong> — Find/Replace, History, Templates, Comments</div>
+        </div>
+      </div>
+
+      <div class="help-section">
+        <h3>Right Panel Tabs</h3>
+        <div class="help-grid">
+          <div class="help-item"><strong>Layers</strong> — View and select all overlays on the current slide</div>
+          <div class="help-item"><strong>Properties</strong> — Edit font, color, size, effects of selected overlay</div>
+          <div class="help-item"><strong>Notes</strong> — Add speaker notes (included in PPTX export)</div>
+          <div class="help-item"><strong>Filters</strong> — Apply brightness, contrast, blur, grayscale, sepia to slides</div>
+          <div class="help-item"><strong>Comments</strong> — View, resolve, and delete annotation comments</div>
+        </div>
+      </div>
+
+      <div class="help-section">
+        <h3>Export Options</h3>
+        <div class="help-grid">
+          <div class="help-item"><strong>PPTX</strong> — PowerPoint with overlays as editable text layers</div>
+          <div class="help-item"><strong>PDF</strong> — Multi-page PDF of all slides</div>
+          <div class="help-item"><strong>PNG</strong> — ZIP archive of all slides as PNG images</div>
+          <div class="help-item"><strong>GIF</strong> — Animated slideshow GIF</div>
+          <div class="help-item"><strong>Apply</strong> — Burns overlays permanently into the slide images</div>
+        </div>
+      </div>
+
+      <div class="help-section">
+        <h3>Video Logo Remover</h3>
+        <div class="help-step"><span class="help-num">1</span><div>Click <em>Video</em> in the header to open the video tool</div></div>
+        <div class="help-step"><span class="help-num">2</span><div>Upload your video (MP4, MOV, AVI, MKV)</div></div>
+        <div class="help-step"><span class="help-num">3</span><div>Drag the red box over the logo on the preview frame</div></div>
+        <div class="help-step"><span class="help-num">4</span><div>Click <em>Remove Logo</em> — watch real-time progress with ETA</div></div>
+        <div class="help-step"><span class="help-num">5</span><div>Click <em>Stop</em> to cancel, or <em>Download</em> when done</div></div>
+      </div>
+
+      <div class="help-section">
+        <h3>Tips & Tricks</h3>
+        <div class="help-grid">
+          <div class="help-item">Press <kbd>?</kbd> to see all keyboard shortcuts</div>
+          <div class="help-item">Press <kbd>F5</kbd> for fullscreen presentation mode</div>
+          <div class="help-item">Press <kbd>G</kbd> to toggle the alignment snap grid</div>
+          <div class="help-item"><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd> for undo/redo (50 steps)</div>
+          <div class="help-item"><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> to copy/paste overlays across slides</div>
+          <div class="help-item">Right-click an overlay for context menu (duplicate, front/back)</div>
+          <div class="help-item">Drag thumbnails in the sidebar to reorder slides</div>
+          <div class="help-item">Save versions regularly — use History to rollback if needed</div>
+          <div class="help-item">Save Templates to reuse slide layouts across presentations</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Header -->
 <header>
   <!-- Left: Logo + Badge -->
@@ -896,6 +1046,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>
         <span class="act-label">Video</span>
       </a>
+      <div class="group-sep"></div>
+      <button class="btn-action" onclick="openHelpModal()" title="Help & Guide (H)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="act-label">Help</span>
+      </button>
     </div>
   </div>
 </header>
@@ -1354,31 +1509,89 @@
 
 <!-- Watermark Modal -->
 <div class="modal-backdrop" id="watermark-modal" onclick="if(event.target===this)this.classList.remove('show')">
-  <div class="modal-card" style="position:relative">
+  <div class="modal-card" style="position:relative;max-width:520px">
     <h3>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      Add Watermark
+      Watermark Manager
     </h3>
-    <div class="field">
-      <label>Watermark Text</label>
-      <input type="text" id="wm-text" placeholder="CONFIDENTIAL" value="CONFIDENTIAL">
+
+    <!-- Tabs: Add / Detect & Remove -->
+    <div style="display:flex;gap:4px;margin-bottom:16px;background:var(--surface);border-radius:var(--radius-sm);padding:3px">
+      <button class="tool-btn btn-sm" id="wm-tab-add" onclick="switchWmTab('add')" style="flex:1;justify-content:center" class="active">Add Watermark</button>
+      <button class="tool-btn btn-sm" id="wm-tab-detect" onclick="switchWmTab('detect')" style="flex:1;justify-content:center">Detect & Remove</button>
     </div>
-    <div class="field">
-      <label>Position</label>
-      <select id="wm-position">
-        <option value="center">Center</option>
-        <option value="bottom-right">Bottom Right</option>
-        <option value="tiled">Tiled</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Opacity</label>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input type="range" class="zoom-slider" min="0.05" max="0.5" step="0.05" value="0.15" id="wm-opacity" oninput="document.getElementById('wm-opacity-val').textContent=Math.round(this.value*100)+'%'" style="flex:1">
-        <span class="range-val" id="wm-opacity-val">15%</span>
+
+    <!-- ADD TAB -->
+    <div id="wm-panel-add">
+      <!-- Type selector -->
+      <div class="field">
+        <label>Type</label>
+        <div style="display:flex;gap:4px">
+          <button class="tool-btn btn-sm active" id="wm-type-text" onclick="setWmType('text')" style="flex:1;justify-content:center">Text</button>
+          <button class="tool-btn btn-sm" id="wm-type-image" onclick="setWmType('image')" style="flex:1;justify-content:center">Image / Logo</button>
+        </div>
       </div>
+
+      <!-- Text options -->
+      <div id="wm-text-options">
+        <div class="field">
+          <label>Watermark Text</label>
+          <input type="text" id="wm-text" placeholder="CONFIDENTIAL" value="CONFIDENTIAL">
+        </div>
+      </div>
+
+      <!-- Image options -->
+      <div id="wm-image-options" style="display:none">
+        <div class="field">
+          <label>Upload Logo / Image</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <label class="btn btn-glass btn-sm" style="cursor:pointer;flex:1;justify-content:center">
+              Choose Image
+              <input type="file" accept="image/*" id="wm-image-input" onchange="previewWmImage(this)" style="display:none">
+            </label>
+            <img id="wm-image-preview" src="" style="width:40px;height:40px;border-radius:6px;object-fit:contain;background:var(--surface);display:none">
+          </div>
+        </div>
+        <div class="field">
+          <label>Scale</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="range" class="zoom-slider" min="0.05" max="0.4" step="0.01" value="0.15" id="wm-scale" oninput="document.getElementById('wm-scale-val').textContent=Math.round(this.value*100)+'%'" style="flex:1">
+            <span class="range-val" id="wm-scale-val">15%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shared options -->
+      <div class="field">
+        <label>Position</label>
+        <select id="wm-position">
+          <option value="center">Center</option>
+          <option value="bottom-right">Bottom Right</option>
+          <option value="bottom-left">Bottom Left</option>
+          <option value="top-right">Top Right</option>
+          <option value="top-left">Top Left</option>
+          <option value="tiled">Tiled (Repeat)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Opacity</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="range" class="zoom-slider" min="0.05" max="0.8" step="0.05" value="0.15" id="wm-opacity" oninput="document.getElementById('wm-opacity-val').textContent=Math.round(this.value*100)+'%'" style="flex:1">
+          <span class="range-val" id="wm-opacity-val">15%</span>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" style="width:100%" onclick="applyWatermark()">Apply to All Slides</button>
     </div>
-    <button class="btn btn-primary btn-sm" style="width:100%" onclick="applyWatermark()">Apply Watermark</button>
+
+    <!-- DETECT & REMOVE TAB -->
+    <div id="wm-panel-detect" style="display:none">
+      <p style="font-size:12px;color:var(--text3);margin-bottom:12px">Scan the current slide for watermarks and logos. Detected regions can be removed with one click.</p>
+      <button class="btn btn-glass btn-sm" style="width:100%;margin-bottom:12px" onclick="detectWatermarks()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Scan Current Slide
+      </button>
+      <div id="wm-candidates" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
   </div>
 </div>
 
@@ -3395,42 +3608,152 @@ async function generateQR() {
 // ══════════════════════════════════════════════════════════════════════════
 // WATERMARK
 // ══════════════════════════════════════════════════════════════════════════
+let wmType = 'text';
+
 function openWatermarkModal() {
   document.getElementById('watermark-modal').classList.add('show');
+  switchWmTab('add');
+}
+
+function switchWmTab(tab) {
+  document.getElementById('wm-panel-add').style.display = tab === 'add' ? '' : 'none';
+  document.getElementById('wm-panel-detect').style.display = tab === 'detect' ? '' : 'none';
+  document.getElementById('wm-tab-add').classList.toggle('active', tab === 'add');
+  document.getElementById('wm-tab-detect').classList.toggle('active', tab === 'detect');
+}
+
+function setWmType(type) {
+  wmType = type;
+  document.getElementById('wm-type-text').classList.toggle('active', type === 'text');
+  document.getElementById('wm-type-image').classList.toggle('active', type === 'image');
+  document.getElementById('wm-text-options').style.display = type === 'text' ? '' : 'none';
+  document.getElementById('wm-image-options').style.display = type === 'image' ? '' : 'none';
+}
+
+function previewWmImage(input) {
+  if (!input.files[0]) return;
+  const url = URL.createObjectURL(input.files[0]);
+  const preview = document.getElementById('wm-image-preview');
+  preview.src = url;
+  preview.style.display = '';
+}
+
+function reloadAllSlides() {
+  const t = Date.now();
+  for (let i = 1; i <= NUM_SLIDES; i++) {
+    const pad = String(i).padStart(2, '0');
+    const thumb = document.querySelector('#thumb-' + i + ' img');
+    if (thumb) thumb.src = '/static/slides/slide-' + pad + '.jpg?t=' + t;
+  }
+  const pad = String(currentSlide).padStart(2, '0');
+  slideImg.src = '/static/slides/slide-' + pad + '.jpg?t=' + t;
 }
 
 async function applyWatermark() {
-  const text = document.getElementById('wm-text').value.trim();
-  if (!text) { showToast('Enter watermark text', 'error'); return; }
   const position = document.getElementById('wm-position').value;
   const opacity = parseFloat(document.getElementById('wm-opacity').value);
-  showLoading('Applying watermark...');
+
+  if (wmType === 'image') {
+    const fileInput = document.getElementById('wm-image-input');
+    if (!fileInput.files[0]) { showToast('Select an image first', 'error'); return; }
+    const scale = parseFloat(document.getElementById('wm-scale').value);
+    showLoading('Applying image watermark...');
+    const form = new FormData();
+    form.append('image', fileInput.files[0]);
+    form.append('opacity', opacity);
+    form.append('position', position);
+    form.append('scale', scale);
+    try {
+      const resp = await fetch('/api/watermark-image', { method: 'POST', body: form });
+      hideLoading();
+      const data = await resp.json();
+      if (data.ok) {
+        document.getElementById('watermark-modal').classList.remove('show');
+        reloadAllSlides();
+        showToast('Image watermark applied!', 'success');
+      } else { showToast(data.error || 'Failed', 'error'); }
+    } catch (e) { hideLoading(); showToast('Error: ' + e.message, 'error'); }
+  } else {
+    const text = document.getElementById('wm-text').value.trim();
+    if (!text) { showToast('Enter watermark text', 'error'); return; }
+    showLoading('Applying text watermark...');
+    try {
+      const resp = await fetch('/api/watermark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'text', text, opacity, position })
+      });
+      hideLoading();
+      const data = await resp.json();
+      if (data.ok) {
+        document.getElementById('watermark-modal').classList.remove('show');
+        reloadAllSlides();
+        showToast('Text watermark applied!', 'success');
+      } else { showToast(data.error || 'Failed', 'error'); }
+    } catch (e) { hideLoading(); showToast('Error: ' + e.message, 'error'); }
+  }
+}
+
+async function detectWatermarks() {
+  showLoading('Scanning for watermarks...');
   try {
-    const resp = await fetch('/api/watermark', {
+    const resp = await fetch('/api/detect-watermark/' + currentSlide, { method: 'POST' });
+    hideLoading();
+    const data = await resp.json();
+    const container = document.getElementById('wm-candidates');
+    if (!data.candidates || data.candidates.length === 0) {
+      container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:16px;font-size:13px">No watermarks detected on this slide.</div>';
+      return;
+    }
+    container.innerHTML = data.candidates.map((c, i) => {
+      const locLabel = c.location.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase());
+      return '<div style="background:var(--surface);border:1px solid var(--glass-border);border-radius:var(--radius-xs);padding:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<strong style="font-size:13px;color:var(--text)">' + locLabel + '</strong>' +
+          '<span style="font-size:11px;color:var(--accent2)">' + c.confidence + '% confidence</span>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Region: x=' + (c.x*100).toFixed(1) + '% y=' + (c.y*100).toFixed(1) + '% w=' + (c.w*100).toFixed(1) + '% h=' + (c.h*100).toFixed(1) + '%' + (c.note ? ' — ' + c.note : '') + '</div>' +
+        '<div style="display:flex;gap:6px">' +
+          '<button class="btn btn-danger btn-sm" style="flex:1" onclick="confirmRemoveWatermark(' + i + ',' + JSON.stringify(JSON.stringify(c)) + ')">Remove from This Slide</button>' +
+          '<button class="btn btn-danger btn-sm" style="flex:1" onclick="confirmRemoveWatermarkAll(' + i + ',' + JSON.stringify(JSON.stringify(c)) + ')">Remove from All Slides</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch (e) {
+    hideLoading();
+    showToast('Detection failed: ' + e.message, 'error');
+  }
+}
+
+function confirmRemoveWatermark(idx, regionJson) {
+  const region = JSON.parse(regionJson);
+  if (!confirm('Are you sure you want to remove this watermark from the current slide? This cannot be undone.')) return;
+  removeWatermarkRegion([region], false);
+}
+
+function confirmRemoveWatermarkAll(idx, regionJson) {
+  const region = JSON.parse(regionJson);
+  if (!confirm('Are you sure you want to remove this watermark from ALL ' + NUM_SLIDES + ' slides? This cannot be undone.')) return;
+  removeWatermarkRegion([region], true);
+}
+
+async function removeWatermarkRegion(regions, allSlides) {
+  showLoading(allSlides ? 'Removing from all slides...' : 'Removing watermark...');
+  try {
+    const url = allSlides ? '/api/remove-watermark-all' : '/api/remove-watermark/' + currentSlide;
+    const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'text', text, opacity, position })
+      body: JSON.stringify({ regions })
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       document.getElementById('watermark-modal').classList.remove('show');
-      // Reload all slide images
-      for (let i = 1; i <= NUM_SLIDES; i++) {
-        const pad = String(i).padStart(2, '0');
-        const thumb = document.querySelector(`#thumb-${i} img`);
-        if (thumb) thumb.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
-      }
-      const pad = String(currentSlide).padStart(2, '0');
-      slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
-      showToast('Watermark applied!', 'success');
-    } else {
-      showToast(data.error || 'Watermark failed', 'error');
-    }
-  } catch (e) {
-    hideLoading();
-    showToast('Watermark error: ' + e.message, 'error');
-  }
+      reloadAllSlides();
+      showToast(allSlides ? 'Watermark removed from all slides!' : 'Watermark removed!', 'success');
+    } else { showToast(data.error || 'Failed', 'error'); }
+  } catch (e) { hideLoading(); showToast('Error: ' + e.message, 'error'); }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -3884,8 +4207,23 @@ async function deleteComment(index) {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     document.querySelectorAll('.modal-backdrop.show').forEach(m => m.classList.remove('show'));
+    document.getElementById('help-modal').classList.remove('show');
     cancelComment();
   }
+  if (e.key === 'h' || e.key === 'H') openHelpModal();
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// HELP MODAL
+// ══════════════════════════════════════════════════════════════════════════
+function openHelpModal() {
+  document.getElementById('help-modal').classList.add('show');
+}
+function closeHelpModal() {
+  document.getElementById('help-modal').classList.remove('show');
+}
+document.getElementById('help-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeHelpModal();
 });
 </script>
 </body>

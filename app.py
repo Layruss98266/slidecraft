@@ -59,35 +59,26 @@ LOGO_REF_W, LOGO_REF_H = 1376, 768   # reference image dimensions
 LOGO_W, LOGO_H          = 145, 28    # tight box around icon + "NotebookLM" text (with small pad)
 
 def _erase_logo(img):
-    """Erase the NotebookLM logo using OpenCV inpainting for seamless removal.
-    Falls back to pixel-row tiling if OpenCV is unavailable."""
+    """Erase only the NotebookLM logo by tiling the pixel row just above it
+    downward. Preserves the exact horizontal background pattern — pixel-perfect."""
     w, h = img.size
     logo_w = int(LOGO_W * w / LOGO_REF_W)
     logo_h = int(LOGO_H * h / LOGO_REF_H)
 
-    try:
-        import cv2
-        import numpy as np
-        # Convert PIL → numpy array for inpainting
-        arr = np.array(img.convert("RGB"))
-        mask = np.zeros((h, w), dtype=np.uint8)
-        mask[h - logo_h:h, w - logo_w:w] = 255
-        # Inpaint: fills from surrounding pixels on all edges
-        result = cv2.inpaint(arr, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
-        return Image.fromarray(result)
-    except ImportError:
-        # Fallback: tile the row above
-        src_y = max(0, h - logo_h - 1)
-        strip = img.crop((w - logo_w, src_y, w, src_y + 1))
-        patch = strip.resize((logo_w, logo_h), Image.NEAREST)
-        img.paste(patch, (w - logo_w, h - logo_h))
-        return img
+    # Single-row strip just above the logo (1 px tall)
+    src_y = max(0, h - logo_h - 1)
+    strip = img.crop((w - logo_w, src_y, w, src_y + 1))
+
+    # Tile that row to full logo height (NEAREST = exact pixel copy)
+    patch = strip.resize((logo_w, logo_h), Image.NEAREST)
+    img.paste(patch, (w - logo_w, h - logo_h))
+    return img
 
 
 def remove_notebooklm_logo(img_path):
     """Load → erase logo → save a single slide image."""
     img = Image.open(img_path).convert("RGB")
-    _erase_logo(img)
+    img = _erase_logo(img)
     img.save(str(img_path), quality=95)
 
 
@@ -95,7 +86,7 @@ def remove_logos_batch(slide_files):
     """Remove the logo from many slides with minimal per-file overhead."""
     for p in slide_files:
         img = Image.open(p).convert("RGB")
-        _erase_logo(img)
+        img = _erase_logo(img)
         img.save(str(p), quality=95)
 
 
@@ -1139,6 +1130,205 @@ def add_watermark():
 
             img = Image.alpha_composite(img, overlay)
 
+        img.convert("RGB").save(str(sf), quality=95)
+
+    return jsonify({"ok": True})
+
+
+# ── Watermark Detection ─────────────────────────────────────────────────────
+
+@app.route("/api/detect-watermark/<int:num>", methods=["POST"])
+def detect_watermark(num):
+    """Auto-detect watermark/logo regions in a slide using edge + contour analysis.
+    Returns candidate regions with positions and confidence scores."""
+    import cv2
+    import numpy as np
+
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide"}), 400
+
+    img = cv2.imread(str(slide_files[num - 1]))
+    h, w = img.shape[:2]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    candidates = []
+
+    # Strategy 1: Check all 4 corners for small text/logo regions
+    corners = {
+        "bottom-right": (int(w*0.7), int(h*0.85), w, h),
+        "bottom-left":  (0, int(h*0.85), int(w*0.3), h),
+        "top-right":    (int(w*0.7), 0, w, int(h*0.15)),
+        "top-left":     (0, 0, int(w*0.3), int(h*0.15)),
+    }
+
+    for corner_name, (x1, y1, x2, y2) in corners.items():
+        roi = gray[y1:y2, x1:x2]
+        edges = cv2.Canny(roi, 50, 150)
+        rh, rw = roi.shape
+        edge_density = np.sum(edges > 0) / max(1, rh * rw)
+
+        # Watermarks typically have moderate edge density (text/logos)
+        if 0.02 < edge_density < 0.4:
+            # Find contours to get tighter bounding box
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours:
+                # Get bounding rect of all contours combined
+                all_pts = np.vstack(contours)
+                bx, by, bw, bh = cv2.boundingRect(all_pts)
+                # Convert to absolute coords, then normalize
+                abs_x = (x1 + bx) / w
+                abs_y = (y1 + by) / h
+                abs_w = bw / w
+                abs_h = bh / h
+                # Add padding
+                pad = 0.01
+                abs_x = max(0, abs_x - pad)
+                abs_y = max(0, abs_y - pad)
+                abs_w = min(1 - abs_x, abs_w + pad * 2)
+                abs_h = min(1 - abs_y, abs_h + pad * 2)
+
+                candidates.append({
+                    "location": corner_name,
+                    "x": round(abs_x, 4),
+                    "y": round(abs_y, 4),
+                    "w": round(abs_w, 4),
+                    "h": round(abs_h, 4),
+                    "confidence": round(edge_density * 100, 1),
+                })
+
+    # Strategy 2: Look for semi-transparent overlays (watermarks) across the whole image
+    # Check for low-contrast repeated patterns
+    laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+    lap_std = laplacian.std()
+    if lap_std < 15:  # Very uniform image — possible full-screen watermark
+        candidates.append({
+            "location": "full-image",
+            "x": 0, "y": 0, "w": 1, "h": 1,
+            "confidence": round((20 - lap_std) * 5, 1),
+            "note": "Possible full-image watermark detected"
+        })
+
+    # Sort by confidence descending
+    candidates.sort(key=lambda c: c["confidence"], reverse=True)
+
+    return jsonify({"candidates": candidates})
+
+
+@app.route("/api/remove-watermark/<int:num>", methods=["POST"])
+def remove_watermark(num):
+    """Remove a specific watermark region from a slide using inpainting."""
+    import cv2
+    import numpy as np
+
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide"}), 400
+
+    payload = request.json
+    regions = payload.get("regions", [])
+    if not regions:
+        return jsonify({"error": "No regions specified"}), 400
+
+    img = cv2.imread(str(slide_files[num - 1]))
+    h, w = img.shape[:2]
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    for r in regions:
+        x1 = int(r["x"] * w)
+        y1 = int(r["y"] * h)
+        x2 = int((r["x"] + r["w"]) * w)
+        y2 = int((r["y"] + r["h"]) * h)
+        mask[y1:y2, x1:x2] = 255
+
+    result = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    cv2.imwrite(str(slide_files[num - 1]), result, [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+    return jsonify({"ok": True})
+
+
+@app.route("/api/remove-watermark-all", methods=["POST"])
+def remove_watermark_all():
+    """Remove watermark from ALL slides at the same region."""
+    import cv2
+    import numpy as np
+
+    payload = request.json
+    regions = payload.get("regions", [])
+    if not regions:
+        return jsonify({"error": "No regions specified"}), 400
+
+    slide_files = _get_slide_files()
+    count = 0
+    for sf in slide_files:
+        img = cv2.imread(str(sf))
+        h, w = img.shape[:2]
+        mask = np.zeros((h, w), dtype=np.uint8)
+        for r in regions:
+            x1 = int(r["x"] * w)
+            y1 = int(r["y"] * h)
+            x2 = int((r["x"] + r["w"]) * w)
+            y2 = int((r["y"] + r["h"]) * h)
+            mask[y1:y2, x1:x2] = 255
+        result = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+        cv2.imwrite(str(sf), result, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        count += 1
+
+    return jsonify({"ok": True, "slides": count})
+
+
+# ── Custom Watermark (Image) ───────────────────────────────────────────────
+
+@app.route("/api/watermark-image", methods=["POST"])
+def add_image_watermark():
+    """Add an image watermark (logo) to all slides."""
+    if "image" not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
+
+    wm_img = Image.open(request.files["image"].stream).convert("RGBA")
+    wm_opacity = float(request.form.get("opacity", 0.3))
+    wm_position = request.form.get("position", "bottom-right")
+    wm_scale = float(request.form.get("scale", 0.15))  # % of slide width
+
+    slide_files = _get_slide_files()
+    for sf in slide_files:
+        img = Image.open(sf).convert("RGBA")
+        w, h = img.size
+
+        # Scale watermark
+        wm_w = int(w * wm_scale)
+        wm_h = int(wm_w * wm_img.height / wm_img.width)
+        wm_resized = wm_img.resize((wm_w, wm_h), Image.LANCZOS)
+
+        # Apply opacity
+        r, g, b, a = wm_resized.split()
+        import numpy as np
+        a_arr = np.array(a).astype(float) * wm_opacity
+        a = Image.fromarray(a_arr.astype(np.uint8))
+        wm_resized = Image.merge("RGBA", (r, g, b, a))
+
+        # Position
+        if wm_position == "center":
+            pos = ((w - wm_w) // 2, (h - wm_h) // 2)
+        elif wm_position == "top-left":
+            pos = (20, 20)
+        elif wm_position == "top-right":
+            pos = (w - wm_w - 20, 20)
+        elif wm_position == "bottom-left":
+            pos = (20, h - wm_h - 20)
+        elif wm_position == "tiled":
+            # Tile across entire image
+            overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            for tx in range(0, w, wm_w + 60):
+                for ty in range(0, h, wm_h + 40):
+                    overlay.paste(wm_resized, (tx, ty), wm_resized)
+            img = Image.alpha_composite(img, overlay)
+            img.convert("RGB").save(str(sf), quality=95)
+            continue
+        else:  # bottom-right
+            pos = (w - wm_w - 20, h - wm_h - 20)
+
+        img.paste(wm_resized, pos, wm_resized)
         img.convert("RGB").save(str(sf), quality=95)
 
     return jsonify({"ok": True})
