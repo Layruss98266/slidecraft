@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# App data (auto-generated, user-specific)
+slide_data.json
+static/slides/*.jpg
+uploads/
+exports/
+videos/
+
+# EasyOCR models (large, downloaded on first use)
+~/.EasyOCR/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp files
+*.tmp
+_temp_*

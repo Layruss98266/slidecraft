@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Logo Remover — Surya</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a; --glass: rgba(15,20,35,0.75); --glass2: rgba(20,28,50,0.6);
+    --glass-border: rgba(255,255,255,0.06); --accent: #3b82f6; --accent2: #60a5fa;
+    --accent3: #818cf8; --accent-glow: rgba(59,130,246,0.25); --accent-soft: rgba(59,130,246,0.1);
+    --text: #e2e8f0; --text2: #94a3b8; --text3: #64748b;
+    --green: #34d399; --red: #f87171; --surface: rgba(30,35,55,0.5);
+    --radius: 12px; --radius-sm: 8px;
+    --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; display: flex; flex-direction: column; }
+
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 0 24px; height: 56px;
+    background: linear-gradient(180deg, rgba(16,20,36,0.98), rgba(12,16,28,0.96));
+    backdrop-filter: blur(24px); border-bottom: 1px solid var(--glass-border);
+    position: relative;
+  }
+  header::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent 5%, var(--accent) 30%, var(--accent3) 50%, var(--accent) 70%, transparent 95%);
+    opacity: 0.5;
+  }
+  .logo { font-weight: 800; font-size: 15px; color: #fff; display: flex; align-items: center; gap: 10px; }
+  .logo-icon {
+    width: 32px; height: 32px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 12px var(--accent-glow);
+  }
+  .logo-icon svg { width: 17px; height: 17px; fill: #fff; }
+  .logo-text { display: flex; flex-direction: column; line-height: 1.1; }
+  .logo-text .brand { font-size: 14px; font-weight: 800; }
+  .logo-text .sub { font-size: 10px; font-weight: 600; background: linear-gradient(135deg, var(--accent2), var(--accent3)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .spacer { flex: 1; }
+  .nav-link { color: var(--text2); text-decoration: none; font-size: 13px; font-weight: 500; padding: 6px 14px; border-radius: var(--radius-sm); border: 1px solid var(--glass-border); transition: all var(--transition); }
+  .nav-link:hover { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+
+  .container { max-width: 900px; margin: 40px auto; padding: 0 24px; width: 100%; }
+
+  .card {
+    background: var(--glass); backdrop-filter: blur(20px); border: 1px solid var(--glass-border);
+    border-radius: 16px; padding: 32px; margin-bottom: 24px;
+  }
+  .card h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: var(--text2); margin-bottom: 20px; line-height: 1.5; }
+
+  .drop-zone {
+    border: 2px dashed var(--glass-border); border-radius: var(--radius); padding: 48px;
+    text-align: center; cursor: pointer; transition: all var(--transition);
+  }
+  .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: var(--accent-soft); }
+  .drop-zone svg { width: 40px; height: 40px; color: var(--text3); margin-bottom: 12px; }
+  .drop-zone h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .drop-zone p { font-size: 13px; color: var(--text3); margin: 0; }
+  .drop-zone input { display: none; }
+
+  .preview-section { display: none; }
+  .preview-section.active { display: block; }
+  .preview-frame { position: relative; display: inline-block; border-radius: var(--radius-sm); overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .preview-frame img { max-width: 100%; display: block; }
+  .preview-frame .logo-box {
+    position: absolute; border: 2px dashed var(--red); background: rgba(248,113,113,0.1);
+    cursor: move; transition: border-color var(--transition);
+  }
+  .preview-frame .logo-box:hover { border-color: #fff; }
+  .preview-frame .logo-box .resize-handle {
+    position: absolute; bottom: -4px; right: -4px; width: 10px; height: 10px;
+    background: var(--red); border-radius: 2px; cursor: se-resize;
+  }
+
+  .video-info { display: flex; gap: 16px; margin: 16px 0; flex-wrap: wrap; }
+  .info-pill {
+    background: var(--surface); border: 1px solid var(--glass-border); border-radius: 20px;
+    padding: 5px 14px; font-size: 12px; color: var(--text2);
+  }
+  .info-pill strong { color: var(--text); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px;
+    border-radius: var(--radius-sm); border: none; cursor: pointer;
+    font-size: 14px; font-weight: 600; font-family: inherit;
+    transition: all var(--transition);
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary { background: linear-gradient(135deg, var(--accent), #6366f1); color: #fff; box-shadow: 0 2px 12px var(--accent-glow); }
+  .btn-primary:hover { filter: brightness(1.1); box-shadow: 0 4px 20px var(--accent-glow); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
+  .btn-glass { background: var(--glass2); color: var(--text); border: 1px solid var(--glass-border); }
+  .btn-glass:hover { border-color: var(--accent); }
+  .btn svg { width: 16px; height: 16px; }
+
+  .progress-section { display: none; margin-top: 20px; }
+  .progress-section.active { display: block; }
+  .progress-bar-track { height: 6px; background: var(--surface); border-radius: 6px; overflow: hidden; margin: 12px 0; }
+  .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent3)); border-radius: 6px; transition: width 0.3s; width: 0%; }
+  .progress-text { font-size: 13px; color: var(--text2); }
+
+  .result-section { display: none; margin-top: 20px; }
+  .result-section.active { display: block; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--glass); backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    color: #fff; padding: 12px 20px; border-radius: var(--radius);
+    font-size: 13px; transform: translateY(20px); opacity: 0;
+    transition: all 0.35s; pointer-events: none; z-index: 999;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { border-color: rgba(248,113,113,0.3); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
+    </div>
+    <div class="logo-text">
+      <span class="brand">Surya</span>
+      <span class="sub">Video Logo Remover</span>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <a href="/" class="nav-link">Slide Editor</a>
+</header>
+
+<div class="container">
+
+  <!-- Upload Card -->
+  <div class="card" id="upload-card">
+    <h2>Remove NotebookLM Logo from Video</h2>
+    <p>Upload your video and select the logo region. Works with MP4, MOV, AVI, MKV — any format, any length.</p>
+    <div class="drop-zone" id="drop-zone">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
+      <h3>Drop your video here</h3>
+      <p>or click to browse (MP4, MOV, AVI, MKV)</p>
+      <input type="file" accept="video/*" id="file-input">
+    </div>
+  </div>
+
+  <!-- Preview Card -->
+  <div class="card preview-section" id="preview-card">
+    <h2>Select Logo Region</h2>
+    <p>Drag the red box over the NotebookLM logo. Resize using the bottom-right handle.</p>
+    <div class="preview-frame" id="preview-frame">
+      <img id="frame-img" src="" alt="Video frame">
+      <div class="logo-box" id="logo-box" style="right:2%;bottom:2%;width:12%;height:6%">
+        <div class="resize-handle"></div>
+      </div>
+    </div>
+    <div class="video-info" id="video-info"></div>
+    <div style="display:flex;gap:12px;margin-top:16px">
+      <button class="btn btn-primary" id="btn-remove" onclick="removeLogo()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg>
+        Remove Logo
+      </button>
+      <button class="btn btn-glass" onclick="resetUpload()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+        Choose Different Video
+      </button>
+    </div>
+
+    <div class="progress-section" id="progress-section">
+      <div class="progress-text" id="progress-text">Processing video...</div>
+      <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-fill"></div></div>
+    </div>
+
+    <div class="result-section" id="result-section">
+      <p style="color:var(--green);font-weight:600;margin-bottom:12px">Logo removed successfully!</p>
+      <button class="btn btn-primary" id="btn-download" onclick="downloadResult()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download Clean Video
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let currentFilename = '';
+let outputFilename = '';
+
+// Drop zone
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+
+async function handleFile(file) {
+  showToast('Uploading video...', 'info');
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const resp = await fetch('/api/video/upload', { method: 'POST', body: form });
+    const data = await resp.json();
+    if (data.ok) {
+      currentFilename = data.filename;
+      await loadPreview();
+    } else {
+      showToast(data.error || 'Upload failed', 'error');
+    }
+  } catch (e) {
+    showToast('Upload failed: ' + e.message, 'error');
+  }
+}
+
+async function loadPreview() {
+  const resp = await fetch('/api/video/preview-frame', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: currentFilename })
+  });
+  const data = await resp.json();
+  if (data.error) { showToast(data.error, 'error'); return; }
+
+  document.getElementById('frame-img').src = data.frame;
+  document.getElementById('video-info').innerHTML = `
+    <div class="info-pill"><strong>${data.width}x${data.height}</strong> px</div>
+    <div class="info-pill"><strong>${data.fps.toFixed(1)}</strong> fps</div>
+    <div class="info-pill"><strong>${data.duration}</strong> seconds</div>
+    <div class="info-pill"><strong>${data.totalFrames}</strong> frames</div>
+  `;
+
+  document.getElementById('upload-card').style.display = 'none';
+  document.getElementById('preview-card').classList.add('active');
+  showToast('Video loaded! Adjust the red box over the logo.', 'success');
+  initDragResize();
+}
+
+// Logo box drag & resize
+function initDragResize() {
+  const box = document.getElementById('logo-box');
+  const frame = document.getElementById('preview-frame');
+  const handle = box.querySelector('.resize-handle');
+  let dragging = false, resizing = false, startX, startY, startLeft, startTop, startW, startH;
+
+  box.addEventListener('mousedown', e => {
+    if (e.target === handle) {
+      resizing = true;
+      startX = e.clientX; startY = e.clientY;
+      startW = box.offsetWidth; startH = box.offsetHeight;
+    } else {
+      dragging = true;
+      startX = e.clientX; startY = e.clientY;
+      startLeft = box.offsetLeft; startTop = box.offsetTop;
+    }
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (dragging) {
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      box.style.left = (startLeft + dx) + 'px';
+      box.style.top = (startTop + dy) + 'px';
+      box.style.right = 'auto'; box.style.bottom = 'auto';
+    } else if (resizing) {
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      box.style.width = Math.max(20, startW + dx) + 'px';
+      box.style.height = Math.max(10, startH + dy) + 'px';
+    }
+  });
+
+  document.addEventListener('mouseup', () => { dragging = false; resizing = false; });
+}
+
+function getLogoRegion() {
+  const box = document.getElementById('logo-box');
+  const img = document.getElementById('frame-img');
+  const imgRect = img.getBoundingClientRect();
+  const boxRect = box.getBoundingClientRect();
+
+  return {
+    x: (boxRect.left - imgRect.left) / imgRect.width,
+    y: (boxRect.top - imgRect.top) / imgRect.height,
+    w: boxRect.width / imgRect.width,
+    h: boxRect.height / imgRect.height
+  };
+}
+
+async function removeLogo() {
+  const region = getLogoRegion();
+  const btn = document.getElementById('btn-remove');
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+
+  document.getElementById('progress-section').classList.add('active');
+  document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('progress-text').textContent = 'Starting video processing...';
+
+  try {
+    // Start the job
+    const resp = await fetch('/api/video/remove-logo', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: currentFilename, ...region })
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      showToast(data.error || 'Failed to start', 'error');
+      btn.disabled = false;
+      return;
+    }
+
+    // Poll for progress
+    const jobId = data.jobId;
+    const startTime = Date.now();
+    let pollCount = 0;
+
+    const poll = setInterval(async () => {
+      try {
+        const pResp = await fetch(`/api/video/progress/${jobId}`);
+        const pData = await pResp.json();
+
+        const { status, progress, total, eta, output, error } = pData;
+        const pct = total > 0 ? Math.round((progress / total) * 100) : 0;
+
+        document.getElementById('progress-fill').style.width = pct + '%';
+
+        if (status === 'processing' && total > 0) {
+          const elapsed = (Date.now() - startTime) / 1000;
+          const etaMin = Math.floor(eta / 60);
+          const etaSec = Math.round(eta % 60);
+          const etaStr = etaMin > 0 ? `${etaMin}m ${etaSec}s` : `${etaSec}s`;
+          document.getElementById('progress-text').innerHTML =
+            `<strong>${pct}%</strong> &mdash; Frame ${progress.toLocaleString()} / ${total.toLocaleString()} &mdash; <strong>${etaStr}</strong> remaining`;
+        } else if (status === 'muxing_audio') {
+          document.getElementById('progress-fill').style.width = '95%';
+          document.getElementById('progress-text').innerHTML =
+            '<strong>95%</strong> &mdash; Adding audio track...';
+        } else if (status === 'done') {
+          clearInterval(poll);
+          document.getElementById('progress-fill').style.width = '100%';
+          const totalTime = Math.round((Date.now() - startTime) / 1000);
+          const tMin = Math.floor(totalTime / 60);
+          const tSec = totalTime % 60;
+          const tStr = tMin > 0 ? `${tMin}m ${tSec}s` : `${tSec}s`;
+          document.getElementById('progress-text').innerHTML =
+            `<strong>Done!</strong> Completed in ${tStr}`;
+          outputFilename = output;
+          document.getElementById('result-section').classList.add('active');
+          showToast('Logo removed successfully!', 'success');
+          btn.disabled = false;
+          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg> Remove Logo';
+        } else if (status === 'error') {
+          clearInterval(poll);
+          document.getElementById('progress-text').textContent = 'Error: ' + error;
+          showToast('Processing failed: ' + error, 'error');
+          btn.disabled = false;
+          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg> Remove Logo';
+        }
+      } catch (e) { /* ignore poll errors */ }
+    }, 500);  // Poll every 500ms
+
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+function downloadResult() {
+  window.location.href = `/api/video/download/${outputFilename}`;
+}
+
+function resetUpload() {
+  document.getElementById('upload-card').style.display = '';
+  document.getElementById('preview-card').classList.remove('active');
+  document.getElementById('progress-section').classList.remove('active');
+  document.getElementById('result-section').classList.remove('active');
+  fileInput.value = '';
+}
+
+function showToast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type === 'error' ? 'error' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.className = 'toast', 3000);
+}
+</script>
+</body>
+</html>

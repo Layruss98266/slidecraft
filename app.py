@@ -1,0 +1,1130 @@
+"""
+PPTX Slide Editor — Flask Backend
+Edits NotebookLM image-based slides with text/shape overlays,
+then exports a new editable PPTX.
+"""
+
+import os, json, base64, subprocess, shutil, glob as globmod, tempfile
+from pathlib import Path
+from flask import Flask, render_template, jsonify, request, send_file, redirect, url_for
+from pptx import Presentation
+from pptx.util import Inches, Pt, Emu
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+from PIL import Image, ImageDraw, ImageFont
+from werkzeug.utils import secure_filename
+import io
+
+# OCR — use EasyOCR (no external binary needed, works out of the box)
+HAS_OCR = False
+_ocr_reader = None
+try:
+    import easyocr
+    HAS_OCR = True
+except ImportError:
+    pass
+
+app = Flask(__name__)
+
+BASE_DIR   = Path(__file__).parent
+SLIDES_DIR = BASE_DIR / "static" / "slides"
+UPLOAD_DIR = BASE_DIR / "uploads"
+EXPORT_DIR = BASE_DIR / "exports"
+DATA_FILE  = BASE_DIR / "slide_data.json"
+EXPORT_DIR.mkdir(exist_ok=True)
+
+SLIDE_W_PX, SLIDE_H_PX = 2134, 1200   # actual JPG pixel dimensions
+
+def _get_slide_files():
+    return sorted(SLIDES_DIR.glob("slide-*.jpg"))
+
+SLIDE_FILES = _get_slide_files()
+NUM_SLIDES  = len(SLIDE_FILES)
+
+# ── Persistence ──────────────────────────────────────────────────────────────
+
+def load_data():
+    if DATA_FILE.exists():
+        return json.loads(DATA_FILE.read_text())
+    return {str(i+1): {"overlays": [], "notes": ""} for i in range(NUM_SLIDES)}
+
+def save_data(data):
+    DATA_FILE.write_text(json.dumps(data, indent=2))
+
+# ── NotebookLM Logo Removal ─────────────────────────────────────────────────
+
+# Logo region at 1376×768 source resolution: bottom-right 140×25 px.
+# We scale proportionally to whatever the actual image size is.
+LOGO_REF_W, LOGO_REF_H = 1376, 768   # reference image dimensions
+LOGO_W, LOGO_H          = 145, 28    # tight box around icon + "NotebookLM" text (with small pad)
+
+def _erase_logo(img):
+    """Erase the NotebookLM logo using OpenCV inpainting for seamless removal.
+    Falls back to pixel-row tiling if OpenCV is unavailable."""
+    w, h = img.size
+    logo_w = int(LOGO_W * w / LOGO_REF_W)
+    logo_h = int(LOGO_H * h / LOGO_REF_H)
+
+    try:
+        import cv2
+        import numpy as np
+        # Convert PIL → numpy array for inpainting
+        arr = np.array(img.convert("RGB"))
+        mask = np.zeros((h, w), dtype=np.uint8)
+        mask[h - logo_h:h, w - logo_w:w] = 255
+        # Inpaint: fills from surrounding pixels on all edges
+        result = cv2.inpaint(arr, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+        return Image.fromarray(result)
+    except ImportError:
+        # Fallback: tile the row above
+        src_y = max(0, h - logo_h - 1)
+        strip = img.crop((w - logo_w, src_y, w, src_y + 1))
+        patch = strip.resize((logo_w, logo_h), Image.NEAREST)
+        img.paste(patch, (w - logo_w, h - logo_h))
+        return img
+
+
+def remove_notebooklm_logo(img_path):
+    """Load → erase logo → save a single slide image."""
+    img = Image.open(img_path).convert("RGB")
+    _erase_logo(img)
+    img.save(str(img_path), quality=95)
+
+
+def remove_logos_batch(slide_files):
+    """Remove the logo from many slides with minimal per-file overhead."""
+    for p in slide_files:
+        img = Image.open(p).convert("RGB")
+        _erase_logo(img)
+        img.save(str(p), quality=95)
+
+
+def process_uploaded_pptx(pptx_path):
+    """Convert PPTX slides to JPG images and remove NotebookLM logo."""
+    for f in SLIDES_DIR.glob("slide-*.jpg"):
+        f.unlink()
+    if DATA_FILE.exists():
+        DATA_FILE.unlink()
+    SLIDES_DIR.mkdir(parents=True, exist_ok=True)
+
+    try:
+        _convert_pptx_to_images_libreoffice(pptx_path)
+    except Exception:
+        _convert_pptx_to_images_pillow(pptx_path)
+
+    remove_logos_batch(sorted(SLIDES_DIR.glob("slide-*.jpg")))
+
+    global SLIDE_FILES, NUM_SLIDES
+    SLIDE_FILES = _get_slide_files()
+    NUM_SLIDES = len(SLIDE_FILES)
+
+
+def _find_libreoffice():
+    """Return the LibreOffice binary path or None."""
+    for candidate in ("libreoffice", "soffice",
+                      r"C:\Program Files\LibreOffice\program\soffice.exe",
+                      r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"):
+        if shutil.which(candidate) or Path(candidate).exists():
+            return candidate
+    return None
+
+
+def _convert_pptx_to_images_libreoffice(pptx_path):
+    """PPTX → PDF (LibreOffice) → JPG per page (pdf2image or PyMuPDF)."""
+    import tempfile
+    lo_cmd = _find_libreoffice()
+    if not lo_cmd:
+        raise RuntimeError("LibreOffice not found")
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    try:
+        subprocess.run(
+            [lo_cmd, "--headless", "--convert-to", "pdf",
+             "--outdir", str(tmp_dir), str(pptx_path)],
+            check=True, timeout=120,
+        )
+        pdf_files = list(tmp_dir.glob("*.pdf"))
+        if not pdf_files:
+            raise RuntimeError("PDF conversion produced no output")
+
+        try:
+            from pdf2image import convert_from_path
+            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=200)):
+                img.convert("RGB").save(
+                    str(SLIDES_DIR / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
+        except ImportError:
+            import fitz
+            doc = fitz.open(str(pdf_files[0]))
+            mat = fitz.Matrix(2.0, 2.0)
+            for i, page in enumerate(doc):
+                pix = page.get_pixmap(matrix=mat)
+                (SLIDES_DIR / f"slide-{i+1:02d}.jpg").write_bytes(pix.tobytes("jpeg"))
+            doc.close()
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _convert_pptx_to_images_pillow(pptx_path):
+    """Fallback: extract embedded pictures from PPTX shapes (limited fidelity)."""
+    prs = Presentation(str(pptx_path))
+    sw_emu, sh_emu = prs.slide_width, prs.slide_height
+
+    for i, slide in enumerate(prs.slides):
+        img = Image.new("RGB", (SLIDE_W_PX, SLIDE_H_PX), (255, 255, 255))
+        for shape in slide.shapes:
+            if shape.shape_type == 13:  # Picture
+                shape_img = Image.open(io.BytesIO(shape.image.blob))
+                left = int(shape.left / sw_emu * SLIDE_W_PX) if sw_emu else 0
+                top  = int(shape.top  / sh_emu * SLIDE_H_PX) if sh_emu else 0
+                sw   = int(shape.width  / sw_emu * SLIDE_W_PX) if sw_emu else SLIDE_W_PX
+                sh   = int(shape.height / sh_emu * SLIDE_H_PX) if sh_emu else SLIDE_H_PX
+                img.paste(shape_img.resize((sw, sh), Image.BILINEAR), (left, top))
+        img.save(str(SLIDES_DIR / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
+
+
+# ── Routes ───────────────────────────────────────────────────────────────────
+
+@app.route("/")
+def index():
+    # Refresh in case slides were uploaded
+    global SLIDE_FILES, NUM_SLIDES
+    SLIDE_FILES = _get_slide_files()
+    NUM_SLIDES = len(SLIDE_FILES)
+    slides = [{"index": i+1, "file": f"slides/{f.name}"} for i, f in enumerate(SLIDE_FILES)]
+    return render_template("index.html", slides=slides, num_slides=NUM_SLIDES)
+
+@app.route("/api/slide/<int:num>")
+def get_slide(num):
+    data = load_data()
+    return jsonify(data.get(str(num), {"overlays": [], "notes": ""}))
+
+@app.route("/api/upload", methods=["POST"])
+def upload_pptx():
+    """Upload a PPTX file, convert to slide images, and remove NotebookLM logo."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    f = request.files["file"]
+    if not f.filename.lower().endswith(".pptx"):
+        return jsonify({"error": "Only .pptx files are supported"}), 400
+
+    UPLOAD_DIR.mkdir(exist_ok=True)
+    save_path = UPLOAD_DIR / secure_filename(f.filename)
+    f.save(str(save_path))
+
+    try:
+        process_uploaded_pptx(save_path)
+    except Exception as e:
+        return jsonify({"error": f"Processing failed: {e}"}), 500
+
+    return jsonify({"ok": True, "num_slides": NUM_SLIDES})
+
+
+@app.route("/api/remove-logo", methods=["POST"])
+def remove_logo_from_existing():
+    """Remove NotebookLM logo from all currently loaded slide images."""
+    remove_logos_batch(sorted(SLIDES_DIR.glob("slide-*.jpg")))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/slide/<int:num>", methods=["POST"])
+def save_slide(num):
+    data = load_data()
+    payload = request.json
+    data[str(num)] = payload
+    save_data(data)
+    return jsonify({"ok": True})
+
+@app.route("/api/export", methods=["POST"])
+def export_pptx():
+    """Rebuild PPTX: slide image as background + text overlays as real text boxes."""
+    data = load_data()
+    prs  = Presentation()
+    prs.slide_width  = Inches(13.33)
+    prs.slide_height = Inches(7.5)
+
+    blank_layout = prs.slide_layouts[6]  # completely blank
+
+    current_slides = _get_slide_files()
+    for i, slide_file in enumerate(current_slides):
+        slide_num = str(i + 1)
+        slide     = prs.slides.add_slide(blank_layout)
+
+        # Background image (full slide)
+        pic = slide.shapes.add_picture(
+            str(slide_file),
+            left=0, top=0,
+            width=prs.slide_width, height=prs.slide_height
+        )
+        # Send image to back
+        slide.shapes._spTree.remove(pic._element)
+        slide.shapes._spTree.insert(2, pic._element)
+
+        # Add overlays
+        slide_data = data.get(slide_num, {})
+        for ov in slide_data.get("overlays", []):
+            _add_overlay(slide, ov, prs.slide_width, prs.slide_height)
+
+        # Speaker notes
+        notes = slide_data.get("notes", "").strip()
+        if notes:
+            tf = slide.notes_slide.notes_text_frame
+            tf.text = notes
+
+    out_path = EXPORT_DIR / "Cyber_Resilience_Edited.pptx"
+    prs.save(str(out_path))
+    return send_file(str(out_path), as_attachment=True,
+                     download_name="Cyber_Resilience_Edited.pptx")
+
+@app.route("/api/slide/<int:num>/preview", methods=["POST"])
+def preview_slide(num):
+    """Render composite preview: slide image + overlays baked in."""
+    data   = load_data()
+    payload = request.json
+    data[str(num)] = payload
+    save_data(data)
+
+    slide_file = SLIDE_FILES[num - 1]
+    img = Image.open(slide_file).convert("RGBA")
+    draw = ImageDraw.Draw(img)
+
+    for ov in payload.get("overlays", []):
+        x = int(ov["x"] * SLIDE_W_PX)
+        y = int(ov["y"] * SLIDE_H_PX)
+        w = int(ov["w"] * SLIDE_W_PX)
+        h = int(ov["h"] * SLIDE_H_PX)
+
+        if ov["type"] == "text":
+            # Semi-transparent bg box
+            bg = ov.get("bgColor", "transparent")
+            if bg and bg != "transparent":
+                overlay_img = Image.new("RGBA", img.size, (0,0,0,0))
+                ov_draw = ImageDraw.Draw(overlay_img)
+                hex_c = bg.lstrip("#")
+                r,g,b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+                ov_draw.rectangle([x, y, x+w, y+h], fill=(r,g,b,180))
+                img = Image.alpha_composite(img, overlay_img)
+                draw = ImageDraw.Draw(img)
+
+            hex_c = ov.get("color","#FFFFFF").lstrip("#")
+            r,g,b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+            font_size = int(ov.get("fontSize", 18) * 2.5)
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+            except:
+                font = ImageFont.load_default()
+            draw.text((x+8, y+8), ov.get("text",""), fill=(r,g,b,255), font=font)
+
+        elif ov["type"] == "rect":
+            hex_c = ov.get("fillColor","#2563EB").lstrip("#")
+            r,g,b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+            overlay_img = Image.new("RGBA", img.size, (0,0,0,0))
+            ov_draw = ImageDraw.Draw(overlay_img)
+            ov_draw.rectangle([x,y,x+w,y+h], fill=(r,g,b,160))
+            img = Image.alpha_composite(img, overlay_img)
+            draw = ImageDraw.Draw(img)
+
+    img_rgb = img.convert("RGB")
+    buf = io.BytesIO()
+    img_rgb.save(buf, format="JPEG", quality=88)
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode()
+    return jsonify({"preview": f"data:image/jpeg;base64,{b64}"})
+
+
+# ── Font helpers for baking ─────────────────────────────────────────────────
+
+# Font family → {(bold, italic): path} mapping
+_FONTS = {
+    "Segoe UI": {
+        (False,False): r"C:\Windows\Fonts\segoeui.ttf",
+        (True,False):  r"C:\Windows\Fonts\segoeuib.ttf",
+        (False,True):  r"C:\Windows\Fonts\segoeuii.ttf",
+        (True,True):   r"C:\Windows\Fonts\segoeuiz.ttf",
+    },
+    "Arial": {
+        (False,False): r"C:\Windows\Fonts\arial.ttf",
+        (True,False):  r"C:\Windows\Fonts\arialbd.ttf",
+        (False,True):  r"C:\Windows\Fonts\ariali.ttf",
+        (True,True):   r"C:\Windows\Fonts\arialbi.ttf",
+    },
+    "Calibri": {
+        (False,False): r"C:\Windows\Fonts\calibri.ttf",
+        (True,False):  r"C:\Windows\Fonts\calibrib.ttf",
+        (False,True):  r"C:\Windows\Fonts\calibrii.ttf",
+        (True,True):   r"C:\Windows\Fonts\calibriz.ttf",
+    },
+    "Cambria": {
+        (False,False): r"C:\Windows\Fonts\cambria.ttc",
+        (True,False):  r"C:\Windows\Fonts\cambriab.ttf",
+        (False,True):  r"C:\Windows\Fonts\cambriai.ttf",
+        (True,True):   r"C:\Windows\Fonts\cambriaz.ttf",
+    },
+    "Verdana": {
+        (False,False): r"C:\Windows\Fonts\verdana.ttf",
+        (True,False):  r"C:\Windows\Fonts\verdanab.ttf",
+        (False,True):  r"C:\Windows\Fonts\verdanai.ttf",
+        (True,True):   r"C:\Windows\Fonts\verdanaz.ttf",
+    },
+    "Georgia": {
+        (False,False): r"C:\Windows\Fonts\georgia.ttf",
+        (True,False):  r"C:\Windows\Fonts\georgiab.ttf",
+        (False,True):  r"C:\Windows\Fonts\georgiai.ttf",
+        (True,True):   r"C:\Windows\Fonts\georgiaz.ttf",
+    },
+    "Tahoma": {
+        (False,False): r"C:\Windows\Fonts\tahoma.ttf",
+        (True,False):  r"C:\Windows\Fonts\tahomabd.ttf",
+        (False,True):  r"C:\Windows\Fonts\tahoma.ttf",
+        (True,True):   r"C:\Windows\Fonts\tahomabd.ttf",
+    },
+    "Trebuchet MS": {
+        (False,False): r"C:\Windows\Fonts\trebuc.ttf",
+        (True,False):  r"C:\Windows\Fonts\trebucbd.ttf",
+        (False,True):  r"C:\Windows\Fonts\trebucit.ttf",
+        (True,True):   r"C:\Windows\Fonts\trebucbi.ttf",
+    },
+    "Candara": {
+        (False,False): r"C:\Windows\Fonts\Candara.ttf",
+        (True,False):  r"C:\Windows\Fonts\Candarab.ttf",
+        (False,True):  r"C:\Windows\Fonts\Candarai.ttf",
+        (True,True):   r"C:\Windows\Fonts\Candaraz.ttf",
+    },
+    "Corbel": {
+        (False,False): r"C:\Windows\Fonts\corbel.ttf",
+        (True,False):  r"C:\Windows\Fonts\corbelb.ttf",
+        (False,True):  r"C:\Windows\Fonts\corbeli.ttf",
+        (True,True):   r"C:\Windows\Fonts\corbelz.ttf",
+    },
+    "Impact": {
+        (False,False): r"C:\Windows\Fonts\impact.ttf",
+        (True,False):  r"C:\Windows\Fonts\impact.ttf",
+        (False,True):  r"C:\Windows\Fonts\impact.ttf",
+        (True,True):   r"C:\Windows\Fonts\impact.ttf",
+    },
+    "Consolas": {
+        (False,False): r"C:\Windows\Fonts\consola.ttf",
+        (True,False):  r"C:\Windows\Fonts\consolab.ttf",
+        (False,True):  r"C:\Windows\Fonts\consolai.ttf",
+        (True,True):   r"C:\Windows\Fonts\consolaz.ttf",
+    },
+}
+
+def _get_bake_font(size, bold=False, italic=False, family="Segoe UI"):
+    """Get a TrueType font matching family + style, falling back gracefully."""
+    variants = _FONTS.get(family, _FONTS.get("Segoe UI", {}))
+    key = (bool(bold), bool(italic))
+    fp = variants.get(key, variants.get((False, False), ""))
+    if fp and Path(fp).exists():
+        try:
+            return ImageFont.truetype(fp, size)
+        except Exception:
+            pass
+    # Fallback: try Segoe UI, then Arial
+    for fb in ["Segoe UI", "Arial"]:
+        fb_variants = _FONTS.get(fb, {})
+        fb_path = fb_variants.get(key, fb_variants.get((False, False), ""))
+        if fb_path and Path(fb_path).exists():
+            try:
+                return ImageFont.truetype(fb_path, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def _wrap_text_lines(text, font, max_w):
+    """Word-wrap text to fit within max_w pixels."""
+    words = text.split(" ")
+    lines = []
+    line = ""
+    for word in words:
+        test = (line + " " + word).strip()
+        bbox = font.getbbox(test)
+        tw = (bbox[2] - bbox[0]) if bbox else 0
+        if tw > max_w and line:
+            lines.append(line)
+            line = word
+        else:
+            line = test
+    if line:
+        lines.append(line)
+    return lines
+
+
+def _draw_chars_pillow(draw, text, x, y, font, fill, letter_spacing, scale):
+    """Draw text character by character with letter spacing in Pillow."""
+    cx = x
+    ls_px = letter_spacing * scale
+    for ch in text:
+        draw.text((cx, y), ch, fill=fill, font=font)
+        bbox = font.getbbox(ch)
+        cw = (bbox[2] - bbox[0]) if bbox else 0
+        cx += cw + ls_px
+
+
+# ── Bake overlays into slide image ──────────────────────────────────────────
+
+@app.route("/api/slide/<int:num>/bake", methods=["POST"])
+def bake_overlays(num):
+    """Burn overlays into the slide JPG image and clear them from data.
+    This makes text edits permanent — the slide looks like the original
+    but with changes baked in."""
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide"}), 400
+
+    data = load_data()
+    slide_data = data.get(str(num), {})
+    ovs = slide_data.get("overlays", [])
+    if not ovs:
+        return jsonify({"ok": True, "msg": "No overlays to bake"})
+
+    slide_path = slide_files[num - 1]
+    img = Image.open(slide_path).convert("RGBA")
+    w, h = img.size
+
+    for ov in ovs:
+        x = int(ov["x"] * w)
+        y = int(ov["y"] * h)
+        ow = int(ov["w"] * w)
+        oh = int(ov["h"] * h)
+        opacity = ov.get("opacity", 1)
+
+        if ov["type"] == "rect":
+            hex_c = ov.get("fillColor", "#2563EB").lstrip("#")
+            r, g, b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+            a = int(opacity * 255)
+            layer = Image.new("RGBA", img.size, (0,0,0,0))
+            ImageDraw.Draw(layer).rectangle([x, y, x+ow, y+oh], fill=(r,g,b,a))
+            img = Image.alpha_composite(img, layer)
+
+        elif ov["type"] == "text":
+            draw = ImageDraw.Draw(img)
+            bg = ov.get("bgColor", "transparent")
+            if bg and bg != "transparent":
+                hex_c = bg.lstrip("#")
+                cr, cg, cb = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+                layer = Image.new("RGBA", img.size, (0,0,0,0))
+                ImageDraw.Draw(layer).rectangle([x, y, x+ow, y+oh], fill=(cr,cg,cb,int(opacity*255)))
+                img = Image.alpha_composite(img, layer)
+                draw = ImageDraw.Draw(img)
+
+            hex_c = ov.get("color", "#FFFFFF").lstrip("#")
+            r, g, b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+            raw_fs = ov.get("fontSize", 18)
+            font_size = max(8, int(raw_fs * w / 933))
+            is_bold = ov.get("bold", False)
+            is_italic = ov.get("italic", False)
+            font_family = ov.get("fontFamily", "Segoe UI")
+            font = _get_bake_font(font_size, is_bold, is_italic, font_family)
+
+            text = ov.get("text", "")
+            line_height_mul = ov.get("lineHeight", 1.3)
+            letter_spacing = ov.get("letterSpacing", 0)
+            text_transform = ov.get("textTransform", "none")
+            list_style = ov.get("listStyle", "none")
+            has_shadow = ov.get("shadow", False)
+            shadow_color_hex = ov.get("shadowColor", "#000000").lstrip("#")
+            has_outline = ov.get("outline", False)
+            outline_color_hex = ov.get("outlineColor", "#000000").lstrip("#")
+            outline_width = ov.get("outlineWidth", 1)
+            has_underline = ov.get("underline", False)
+            auto_fit = ov.get("autoFit", False)
+
+            # Apply textTransform
+            if text_transform == "uppercase":
+                text = text.upper()
+            elif text_transform == "lowercase":
+                text = text.lower()
+            elif text_transform == "capitalize":
+                text = text.title()
+
+            # Apply listStyle
+            if list_style != "none":
+                raw_lines = text.split("\n")
+                new_lines = []
+                for idx_l, ln in enumerate(raw_lines):
+                    if list_style == "bullet":
+                        new_lines.append("\u2022 " + ln)
+                    elif list_style == "number":
+                        new_lines.append(f"{idx_l+1}. " + ln)
+                text = "\n".join(new_lines)
+
+            lines = _wrap_text_lines(text, font, ow - 16)
+            line_h = int(font_size * line_height_mul)
+
+            # AutoFit: reduce font size until text fits
+            if auto_fit:
+                test_fs = font_size
+                while test_fs > 8:
+                    test_font = _get_bake_font(test_fs, is_bold, is_italic, font_family)
+                    test_lines = _wrap_text_lines(text, test_font, ow - 16)
+                    total_h = len(test_lines) * int(test_fs * line_height_mul) + 16
+                    if total_h <= oh:
+                        break
+                    test_fs -= 1
+                font_size = test_fs
+                font = _get_bake_font(font_size, is_bold, is_italic, font_family)
+                lines = _wrap_text_lines(text, font, ow - 16)
+                line_h = int(font_size * line_height_mul)
+
+            fill_color = (r, g, b, int(opacity*255))
+            ty = y + 8
+            align = ov.get("align", "left")
+
+            # Shadow color
+            sr, sg, sb = 0, 0, 0
+            if has_shadow:
+                sr = int(shadow_color_hex[0:2], 16)
+                sg = int(shadow_color_hex[2:4], 16)
+                sb = int(shadow_color_hex[4:6], 16)
+
+            # Outline color
+            olr, olg, olb = 0, 0, 0
+            if has_outline:
+                olr = int(outline_color_hex[0:2], 16)
+                olg = int(outline_color_hex[2:4], 16)
+                olb = int(outline_color_hex[4:6], 16)
+
+            for ln in lines:
+                bbox = font.getbbox(ln)
+                tw = (bbox[2] - bbox[0]) if bbox else 0
+                if align == "center":
+                    tx = x + (ow - tw) // 2
+                elif align == "right":
+                    tx = x + ow - tw - 8
+                else:
+                    tx = x + 8
+
+                # Draw shadow (offset copy)
+                if has_shadow:
+                    if letter_spacing > 0:
+                        _draw_chars_pillow(draw, ln, tx + 2, ty + 2, font, (sr, sg, sb, int(opacity*180)), letter_spacing, w / 933)
+                    else:
+                        draw.text((tx + 2, ty + 2), ln, fill=(sr, sg, sb, int(opacity*180)), font=font)
+
+                # Draw outline (8-direction offset)
+                if has_outline:
+                    oc = (olr, olg, olb, int(opacity*255))
+                    for odx in [-outline_width, 0, outline_width]:
+                        for ody in [-outline_width, 0, outline_width]:
+                            if odx == 0 and ody == 0:
+                                continue
+                            if letter_spacing > 0:
+                                _draw_chars_pillow(draw, ln, tx + odx, ty + ody, font, oc, letter_spacing, w / 933)
+                            else:
+                                draw.text((tx + odx, ty + ody), ln, fill=oc, font=font)
+
+                # Draw main text
+                if letter_spacing > 0:
+                    _draw_chars_pillow(draw, ln, tx, ty, font, fill_color, letter_spacing, w / 933)
+                else:
+                    draw.text((tx, ty), ln, fill=fill_color, font=font)
+
+                # Draw underline
+                if has_underline:
+                    ul_y = ty + font_size + 2
+                    draw.line([(tx, ul_y), (tx + tw, ul_y)], fill=fill_color, width=max(1, font_size // 14))
+
+                ty += line_h
+
+        elif ov["type"] == "image":
+            src = ov.get("src", "")
+            if src.startswith("data:"):
+                img_data = base64.b64decode(src.split(",", 1)[1])
+                overlay_img = Image.open(io.BytesIO(img_data)).convert("RGBA")
+                overlay_img = overlay_img.resize((ow, oh), Image.BILINEAR)
+                img.paste(overlay_img, (x, y), overlay_img)
+
+    # Save back as RGB JPG
+    img.convert("RGB").save(str(slide_path), "JPEG", quality=95)
+
+    # Clear overlays from data (keep notes)
+    data[str(num)] = {"overlays": [], "notes": slide_data.get("notes", "")}
+    save_data(data)
+
+    return jsonify({"ok": True})
+
+
+# ── OCR Route ───────────────────────────────────────────────────────────────
+
+@app.route("/api/ocr/<int:num>", methods=["POST"])
+def ocr_slide(num):
+    """Run EasyOCR on slide image, return detected text regions with bounding boxes."""
+    if not HAS_OCR:
+        return jsonify({"error": "EasyOCR is not installed. Run: pip install easyocr"}), 400
+
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide number"}), 400
+
+    global _ocr_reader
+    if _ocr_reader is None:
+        _ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+
+    img_path = str(slide_files[num - 1])
+    img = Image.open(img_path)
+    w, h = img.size
+
+    try:
+        results = _ocr_reader.readtext(img_path)
+    except Exception as e:
+        return jsonify({"error": f"OCR failed: {e}"}), 500
+
+    regions = []
+    for (bbox, text, conf) in results:
+        text = text.strip()
+        if not text or conf < 0.3:
+            continue
+        # bbox is [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] — take bounding rect
+        xs = [p[0] for p in bbox]
+        ys = [p[1] for p in bbox]
+        x1, y1 = min(xs), min(ys)
+        x2, y2 = max(xs), max(ys)
+        regions.append({
+            "text": text,
+            "x": x1 / w,
+            "y": y1 / h,
+            "w": (x2 - x1) / w,
+            "h": (y2 - y1) / h,
+            "conf": round(conf * 100),
+        })
+
+    merged = _merge_ocr_regions(regions)
+    return jsonify({"regions": merged, "raw_count": len(regions)})
+
+
+def _merge_ocr_regions(regions):
+    """Merge OCR word boxes on the same line into line-level regions."""
+    if not regions:
+        return []
+    # Sort by Y then X
+    regions.sort(key=lambda r: (round(r["y"], 2), r["x"]))
+    merged = []
+    current = None
+    for r in regions:
+        if current and abs(r["y"] - current["y"]) < 0.02 and r["x"] < current["x"] + current["w"] + 0.03:
+            # Same line — extend
+            new_right = max(current["x"] + current["w"], r["x"] + r["w"])
+            current["w"] = new_right - current["x"]
+            current["h"] = max(current["h"], r["h"])
+            current["text"] += " " + r["text"]
+        else:
+            if current:
+                merged.append(current)
+            current = dict(r)
+    if current:
+        merged.append(current)
+    return merged
+
+
+# ── Sample background color route ───────────────────────────────────────────
+
+@app.route("/api/sample-color/<int:num>", methods=["POST"])
+def sample_color(num):
+    """Sample BOTH background color and text color from a region.
+    Background: sampled from a strip above the region.
+    Text: darkest/lightest pixels inside the region (the ink)."""
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide number"}), 400
+
+    payload = request.json
+    img = Image.open(slide_files[num - 1]).convert("RGB")
+    w, h = img.size
+
+    x1 = int(payload["x"] * w)
+    y1 = int(payload["y"] * h)
+    x2 = int((payload["x"] + payload["w"]) * w)
+    y2 = int((payload["y"] + payload["h"]) * h)
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w, x2), min(h, y2)
+
+    # --- Background color: strip ABOVE the region ---
+    pad = 5
+    sy1 = max(0, y1 - pad - 3)
+    sy2 = max(0, y1 - pad)
+    if sy2 <= sy1:
+        sy1, sy2 = max(0, y1 - 2), y1
+    strip = img.crop((x1, sy1, x2, max(sy2, sy1 + 1)))
+    bg_px = strip.resize((1, 1), Image.BILINEAR).getpixel((0, 0))
+    bg_hex = f"#{bg_px[0]:02x}{bg_px[1]:02x}{bg_px[2]:02x}"
+
+    # --- Text color: find the most different pixels from bg inside the region ---
+    region = img.crop((x1, y1, x2, y2))
+    rw, rh = region.size
+    bg_lum = 0.299 * bg_px[0] + 0.587 * bg_px[1] + 0.114 * bg_px[2]
+
+    # Sample pixels on a grid and find the one furthest from bg luminance
+    best_dist = 0
+    text_color = (0, 0, 0) if bg_lum > 128 else (255, 255, 255)
+    step = max(1, min(rw, rh) // 20)
+    for sx in range(0, rw, step):
+        for sy in range(0, rh, step):
+            px = region.getpixel((sx, sy))
+            lum = 0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2]
+            dist = abs(lum - bg_lum)
+            if dist > best_dist:
+                best_dist = dist
+                text_color = px
+
+    txt_hex = f"#{text_color[0]:02x}{text_color[1]:02x}{text_color[2]:02x}"
+
+    # --- Detect font weight via ink density ---
+    region = img.crop((x1, y1, x2, y2))
+    rw, rh = region.size
+    total_px = 0
+    ink_px = 0
+    for col in range(0, rw, max(1, rw // 60)):
+        for row in range(rh):
+            px = region.getpixel((col, row))
+            lum = 0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2]
+            total_px += 1
+            if abs(lum - bg_lum) > 80:
+                ink_px += 1
+
+    density = ink_px / max(1, total_px)
+    # Bold text: >18% ink density. Normal: <14%
+    if density > 0.22:
+        font_weight = "extrabold"
+    elif density > 0.17:
+        font_weight = "bold"
+    elif density > 0.13:
+        font_weight = "semibold"
+    else:
+        font_weight = "normal"
+
+    return jsonify({"color": bg_hex, "textColor": txt_hex, "fontWeight": font_weight})
+
+
+# ── Image upload route ──────────────────────────────────────────────────────
+
+@app.route("/api/upload-image", methods=["POST"])
+def upload_image():
+    """Accept an image file, return as base64 data URL."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file"}), 400
+    f = request.files["file"]
+    img = Image.open(f.stream).convert("RGBA")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode()
+    return jsonify({"src": f"data:image/png;base64,{b64}", "w": img.width, "h": img.height})
+
+
+# ── Slide reorder route ─────────────────────────────────────────────────────
+
+@app.route("/api/reorder", methods=["POST"])
+def reorder_slides():
+    """Reorder slide files on disk. Expects {"order": [3,1,2,...]}."""
+    payload = request.json
+    new_order = payload.get("order", [])
+    slide_files = _get_slide_files()
+
+    if sorted(new_order) != list(range(1, len(slide_files) + 1)):
+        return jsonify({"error": "Invalid order"}), 400
+
+    tmp_dir = SLIDES_DIR / "_reorder_tmp"
+    tmp_dir.mkdir(exist_ok=True)
+
+    # Copy to temp with new names
+    for new_idx, old_idx in enumerate(new_order, 1):
+        src = SLIDES_DIR / f"slide-{old_idx:02d}.jpg"
+        dst = tmp_dir / f"slide-{new_idx:02d}.jpg"
+        shutil.copy2(str(src), str(dst))
+
+    # Move back
+    for f in SLIDES_DIR.glob("slide-*.jpg"):
+        f.unlink()
+    for f in tmp_dir.glob("slide-*.jpg"):
+        shutil.move(str(f), str(SLIDES_DIR / f.name))
+    tmp_dir.rmdir()
+
+    # Reorder saved data too
+    data = load_data()
+    new_data = {}
+    for new_idx, old_idx in enumerate(new_order, 1):
+        new_data[str(new_idx)] = data.get(str(old_idx), {"overlays": [], "notes": ""})
+    save_data(new_data)
+
+    global SLIDE_FILES, NUM_SLIDES
+    SLIDE_FILES = _get_slide_files()
+    NUM_SLIDES = len(SLIDE_FILES)
+
+    return jsonify({"ok": True})
+
+
+# ── PDF export route ────────────────────────────────────────────────────────
+
+@app.route("/api/export-pdf", methods=["POST"])
+def export_pdf():
+    """Export slides as a multi-page PDF."""
+    slide_files = _get_slide_files()
+    if not slide_files:
+        return jsonify({"error": "No slides to export"}), 400
+
+    images = []
+    for sf in slide_files:
+        images.append(Image.open(sf).convert("RGB"))
+
+    out_path = EXPORT_DIR / "Slides_Export.pdf"
+    images[0].save(str(out_path), save_all=True, append_images=images[1:], resolution=150)
+
+    return send_file(str(out_path), as_attachment=True, download_name="Slides_Export.pdf")
+
+
+# ── Image overlay in PPTX export ───────────────────────────────────────────
+
+def _add_overlay(slide, ov, slide_w, slide_h):
+    """Add a text, rect, arrow, or image overlay to a slide."""
+    kind = ov.get("type", "text")
+
+    left   = int(ov["x"] * slide_w)
+    top    = int(ov["y"] * slide_h)
+    width  = int(ov["w"] * slide_w)
+    height = int(ov["h"] * slide_h)
+
+    if kind == "text":
+        txBox = slide.shapes.add_textbox(left, top, width, height)
+        tf = txBox.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        run = p.add_run()
+        run.text = ov.get("text", "")
+
+        font = run.font
+        font.size = Pt(ov.get("fontSize", 18))
+        hex_c = ov.get("color", "#FFFFFF").lstrip("#")
+        font.color.rgb = RGBColor(int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16))
+        font.bold   = ov.get("bold", False)
+        font.italic = ov.get("italic", False)
+
+        align_map = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT}
+        p.alignment = align_map.get(ov.get("align","left"), PP_ALIGN.LEFT)
+
+        bg_hex = ov.get("bgColor", "")
+        if bg_hex and bg_hex != "transparent":
+            bg_hex = bg_hex.lstrip("#")
+            fill = txBox.fill
+            fill.solid()
+            fill.fore_color.rgb = RGBColor(int(bg_hex[0:2],16), int(bg_hex[2:4],16), int(bg_hex[4:6],16))
+
+    elif kind == "rect":
+        shape = slide.shapes.add_shape(1, left, top, width, height)
+        hex_c = ov.get("fillColor", "#2563EB").lstrip("#")
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = RGBColor(int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16))
+        shape.line.fill.background()
+        shape.fill.fore_color.theme_color = None
+
+    elif kind == "image":
+        # Decode base64 image and add as picture
+        src = ov.get("src", "")
+        if src.startswith("data:"):
+            img_data = base64.b64decode(src.split(",", 1)[1])
+            img_stream = io.BytesIO(img_data)
+            slide.shapes.add_picture(img_stream, left, top, width, height)
+
+    elif kind == "arrow":
+        line_shape = slide.shapes.add_connector(1, left, top, left+width, top+height)
+        hex_c = ov.get("color", "#FF0000").lstrip("#")
+        line_shape.line.color.rgb = RGBColor(int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16))
+        line_shape.line.width = Pt(2)
+
+
+# ── Video Logo Removal ──────────────────────────────────────────────────────
+
+VIDEO_DIR = BASE_DIR / "videos"
+VIDEO_DIR.mkdir(exist_ok=True)
+
+@app.route("/video")
+def video_page():
+    return render_template("video.html")
+
+
+@app.route("/api/video/upload", methods=["POST"])
+def upload_video():
+    """Upload a video file for logo removal."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file"}), 400
+    f = request.files["file"]
+    fname = secure_filename(f.filename)
+    if not fname:
+        return jsonify({"error": "Invalid filename"}), 400
+
+    save_path = VIDEO_DIR / fname
+    f.save(str(save_path))
+    return jsonify({"ok": True, "filename": fname})
+
+
+@app.route("/api/video/preview-frame", methods=["POST"])
+def video_preview_frame():
+    """Get a frame from the video + detect logo region."""
+    payload = request.json
+    fname = payload.get("filename", "")
+    video_path = VIDEO_DIR / secure_filename(fname)
+    if not video_path.exists():
+        return jsonify({"error": "Video not found"}), 400
+
+    import cv2
+    cap = cv2.VideoCapture(str(video_path))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 30)  # grab frame 30
+    ret, frame = cap.read()
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = total / fps if fps > 0 else 0
+    cap.release()
+
+    if not ret:
+        return jsonify({"error": "Could not read video frame"}), 500
+
+    # Convert frame to base64 JPEG
+    _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    b64 = base64.b64encode(buf.tobytes()).decode()
+
+    return jsonify({
+        "frame": f"data:image/jpeg;base64,{b64}",
+        "width": w, "height": h,
+        "fps": fps, "duration": round(duration, 1),
+        "totalFrames": total
+    })
+
+
+import threading, time as _time
+
+_video_jobs = {}  # job_id → {status, progress, total, eta, output, error}
+
+
+@app.route("/api/video/remove-logo", methods=["POST"])
+def remove_video_logo():
+    """Start logo removal job in a background thread, return job_id for polling."""
+    payload = request.json
+    fname = payload.get("filename", "")
+    lx = float(payload.get("x", 0.85))
+    ly = float(payload.get("y", 0.93))
+    lw = float(payload.get("w", 0.14))
+    lh = float(payload.get("h", 0.06))
+
+    video_path = VIDEO_DIR / secure_filename(fname)
+    if not video_path.exists():
+        return jsonify({"error": "Video not found"}), 400
+
+    job_id = f"job_{int(_time.time()*1000)}"
+    _video_jobs[job_id] = {"status": "starting", "progress": 0, "total": 0, "eta": 0, "output": "", "error": ""}
+
+    t = threading.Thread(target=_run_logo_removal, args=(job_id, video_path, fname, lx, ly, lw, lh), daemon=True)
+    t.start()
+
+    return jsonify({"ok": True, "jobId": job_id})
+
+
+@app.route("/api/video/progress/<job_id>")
+def video_progress(job_id):
+    """Poll for job progress."""
+    job = _video_jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify(job)
+
+
+def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
+    """Background worker for video logo removal."""
+    import cv2
+    import numpy as np
+
+    job = _video_jobs[job_id]
+    job["status"] = "processing"
+
+    try:
+        cap = cv2.VideoCapture(str(video_path))
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        job["total"] = total
+
+        x1 = int(lx * w)
+        y1 = int(ly * h)
+        x2 = min(w, int((lx + lw) * w))
+        y2 = min(h, int((ly + lh) * h))
+
+        out_name = f"clean_{secure_filename(fname)}"
+        if not out_name.lower().endswith('.mp4'):
+            out_name = out_name.rsplit('.', 1)[0] + '.mp4'
+        out_path = VIDEO_DIR / out_name
+        temp_path = VIDEO_DIR / f"_temp_{out_name}"
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (w, h))
+
+        mask = np.zeros((h, w), dtype=np.uint8)
+        mask[y1:y2, x1:x2] = 255
+
+        frame_num = 0
+        start_time = _time.time()
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame = cv2.inpaint(frame, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+            writer.write(frame)
+            frame_num += 1
+
+            # Update progress every 10 frames
+            if frame_num % 10 == 0 or frame_num == total:
+                elapsed = _time.time() - start_time
+                fps_actual = frame_num / max(0.1, elapsed)
+                remaining = (total - frame_num) / max(1, fps_actual)
+                job["progress"] = frame_num
+                job["eta"] = round(remaining, 1)
+
+        cap.release()
+        writer.release()
+
+        # Mux audio
+        job["status"] = "muxing_audio"
+        job["eta"] = 0
+        try:
+            from moviepy import VideoFileClip
+            original = VideoFileClip(str(video_path))
+            clean = VideoFileClip(str(temp_path))
+            if original.audio is not None:
+                final = clean.with_audio(original.audio)
+                final.write_videofile(str(out_path), codec='libx264', audio_codec='aac',
+                                      logger=None, temp_audiofile=str(VIDEO_DIR / '_temp_audio.m4a'))
+                final.close()
+            else:
+                clean.write_videofile(str(out_path), codec='libx264', logger=None)
+            original.close()
+            clean.close()
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            if temp_path.exists():
+                shutil.move(str(temp_path), str(out_path))
+
+        (VIDEO_DIR / '_temp_audio.m4a').unlink(missing_ok=True)
+
+        job["status"] = "done"
+        job["progress"] = total
+        job["output"] = out_name
+        job["eta"] = 0
+
+    except Exception as e:
+        job["status"] = "error"
+        job["error"] = str(e)
+
+
+@app.route("/api/video/download/<filename>")
+def download_video(filename):
+    fpath = VIDEO_DIR / secure_filename(filename)
+    if not fpath.exists():
+        return jsonify({"error": "File not found"}), 404
+    return send_file(str(fpath), as_attachment=True, download_name=filename)
+
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5050, host="0.0.0.0")

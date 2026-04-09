@@ -1,0 +1,2791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slide Editor — Surya</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ── CSS Variables ─────────────────────────────────────────────────── */
+  :root {
+    --bg: #0a0e1a;
+    --bg2: #0d1220;
+    --glass: rgba(15, 20, 35, 0.75);
+    --glass2: rgba(20, 28, 50, 0.6);
+    --glass-border: rgba(255,255,255,0.06);
+    --glass-border-hover: rgba(255,255,255,0.12);
+    --accent: #3b82f6;
+    --accent-glow: rgba(59,130,246,0.25);
+    --accent-soft: rgba(59,130,246,0.1);
+    --accent2: #60a5fa;
+    --accent3: #818cf8;
+    --green: #34d399;
+    --green-glow: rgba(52,211,153,0.2);
+    --red: #f87171;
+    --red-glow: rgba(248,113,113,0.2);
+    --orange: #fbbf24;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #64748b;
+    --surface: rgba(30,35,55,0.5);
+    --thumb-w: 185px;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-xs: 6px;
+    --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --shadow: 0 8px 32px rgba(0,0,0,0.4);
+    --shadow-lg: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Scrollbar ─────────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+  /* ── Buttons ───────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    padding: 8px 16px; border-radius: var(--radius-sm); border: none;
+    cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit;
+    transition: all var(--transition); position: relative; overflow: hidden;
+    white-space: nowrap;
+  }
+  .btn:active { transform: scale(0.97); }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #6366f1);
+    color: #fff; box-shadow: 0 2px 12px var(--accent-glow);
+  }
+  .btn-primary:hover { box-shadow: 0 4px 20px var(--accent-glow); filter: brightness(1.1); }
+
+  .btn-glass {
+    background: var(--glass2); color: var(--text);
+    border: 1px solid var(--glass-border); backdrop-filter: blur(12px);
+  }
+  .btn-glass:hover { border-color: var(--glass-border-hover); background: rgba(30,40,70,0.7); }
+
+  .btn-danger { background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
+  .btn-danger:hover { background: rgba(248,113,113,0.25); }
+
+  .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: var(--radius-xs); }
+  .btn-icon { padding: 7px; width: 34px; height: 34px; }
+  .btn-icon svg { width: 16px; height: 16px; }
+
+  .btn .spinner { display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+  .btn.loading .spinner { display: inline-block; }
+  .btn.loading .btn-label { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Header / Navbar ────────────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center;
+    padding: 0 20px; height: 56px;
+    background: linear-gradient(180deg, rgba(16,20,36,0.98), rgba(12,16,28,0.96));
+    backdrop-filter: blur(24px);
+    border-bottom: 1px solid var(--glass-border);
+    flex-shrink: 0; z-index: 10;
+    position: relative;
+  }
+  /* Top accent glow line */
+  header::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent 5%, var(--accent) 30%, var(--accent3) 50%, var(--accent) 70%, transparent 95%);
+    opacity: 0.5;
+  }
+
+  .nav-section {
+    display: flex; align-items: center; gap: 12px;
+    height: 100%;
+  }
+  .nav-section-center { flex: 1; display: flex; justify-content: center; }
+
+  .nav-divider {
+    width: 1px; height: 24px; background: var(--glass-border);
+    margin: 0 4px; flex-shrink: 0;
+  }
+
+  .logo {
+    font-weight: 800; font-size: 15px; color: #fff;
+    display: flex; align-items: center; gap: 10px;
+    text-decoration: none; user-select: none;
+  }
+  .logo-icon {
+    width: 32px; height: 32px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 12px var(--accent-glow);
+    position: relative;
+    transition: transform var(--transition), box-shadow var(--transition);
+  }
+  .logo:hover .logo-icon { transform: scale(1.05); box-shadow: 0 4px 16px var(--accent-glow); }
+  .logo-icon svg { width: 17px; height: 17px; fill: #fff; }
+  /* Subtle glow ring */
+  .logo-icon::after {
+    content: ''; position: absolute; inset: -2px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent3));
+    z-index: -1; opacity: 0.3; filter: blur(4px);
+  }
+  .logo-text {
+    display: flex; flex-direction: column; line-height: 1.1;
+  }
+  .logo-text .logo-brand { font-size: 14px; font-weight: 800; letter-spacing: -0.3px; }
+  .logo-text .logo-sub {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
+    background: linear-gradient(135deg, var(--accent2), var(--accent3));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  .badge {
+    background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(129,140,248,0.08));
+    color: var(--accent2);
+    font-size: 10px; font-weight: 600; padding: 5px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(59,130,246,0.15);
+    letter-spacing: 0.4px; text-transform: uppercase;
+    transition: all var(--transition);
+  }
+  .badge:hover { border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.15); }
+
+  /* Slide counter pill */
+  .slide-pill {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border: 1px solid var(--glass-border);
+    border-radius: 24px; padding: 6px 10px 6px 14px; font-size: 13px; color: var(--text2);
+    transition: all var(--transition);
+    user-select: none;
+  }
+  .slide-pill:hover { border-color: var(--glass-border-hover); }
+  .slide-pill svg { opacity: 0.5; }
+  .slide-pill strong { color: #fff; font-weight: 700; font-size: 14px; }
+  .slide-pill .pill-nav {
+    display: flex; gap: 2px; margin-left: 4px;
+  }
+  .slide-pill .pill-nav-btn {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+    color: var(--text3); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition);
+  }
+  .slide-pill .pill-nav-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent2); }
+  .slide-pill .pill-nav-btn svg { width: 12px; height: 12px; }
+
+  /* Action button groups */
+  .header-actions { display: flex; gap: 6px; align-items: center; }
+
+  .action-group {
+    display: flex; gap: 3px; align-items: center;
+    background: var(--surface); border: 1px solid var(--glass-border);
+    border-radius: 10px; padding: 3px;
+  }
+  .action-group .btn-action {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 8px; border: none;
+    background: transparent; color: var(--text2);
+    font-size: 12px; font-weight: 500; font-family: inherit;
+    cursor: pointer; transition: all var(--transition);
+    white-space: nowrap;
+  }
+  .action-group .btn-action svg { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.6; transition: opacity var(--transition); }
+  .action-group .btn-action:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  .action-group .btn-action:hover svg { opacity: 1; }
+  .action-group .btn-action:active { transform: scale(0.97); }
+  .action-group .btn-action.accent { color: #fff; background: linear-gradient(135deg, var(--accent), #6366f1); }
+  .action-group .btn-action.accent:hover { filter: brightness(1.15); }
+  .action-group .btn-action.accent svg { opacity: 1; }
+  .action-group .group-sep { width: 1px; height: 18px; background: var(--glass-border); margin: 0 1px; }
+
+  /* Label hidden on small widths */
+  .action-group .btn-action .act-label { }
+  @media (max-width: 1200px) {
+    .action-group .btn-action .act-label { display: none; }
+  }
+
+  /* ── Main Layout ───────────────────────────────────────────────────── */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── Thumbnail Strip ───────────────────────────────────────────────── */
+  .thumb-strip {
+    width: var(--thumb-w);
+    background: linear-gradient(180deg, rgba(12,16,28,0.95), rgba(10,14,26,0.98));
+    border-right: 1px solid var(--glass-border);
+    overflow-y: auto; flex-shrink: 0; padding: 12px 10px;
+    display: flex; flex-direction: column; gap: 8px;
+    position: relative;
+  }
+  /* Fade edges */
+  .thumb-strip::before, .thumb-strip::after {
+    content: ''; position: sticky; left: 0; right: 0; height: 20px;
+    z-index: 2; pointer-events: none; flex-shrink: 0;
+  }
+  .thumb-strip::before { top: 0; background: linear-gradient(to bottom, rgba(12,16,28,1), transparent); }
+  .thumb-strip::after { bottom: 0; background: linear-gradient(to top, rgba(10,14,26,1), transparent); }
+
+  .thumb-item {
+    cursor: pointer; border-radius: var(--radius-sm); overflow: hidden;
+    border: 2px solid transparent; transition: all var(--transition);
+    position: relative; flex-shrink: 0;
+  }
+  .thumb-item:hover { border-color: rgba(255,255,255,0.1); transform: scale(1.03); }
+  .thumb-item.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow);
+  }
+  .thumb-item img { width: 100%; display: block; border-radius: inherit; }
+
+  .thumb-item .num {
+    position: absolute; bottom: 6px; left: 6px;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+    color: #fff; font-size: 10px; font-weight: 600;
+    padding: 2px 7px; border-radius: 5px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .thumb-item .has-overlay {
+    position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
+    background: var(--accent2); border-radius: 50%; display: none;
+    box-shadow: 0 0 6px var(--accent-glow);
+  }
+  .thumb-item.has-edits .has-overlay { display: block; }
+
+  /* ── Canvas Area ───────────────────────────────────────────────────── */
+  .canvas-area {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    background: radial-gradient(ellipse at center, #111827 0%, #0a0e1a 100%);
+  }
+
+  .canvas-toolbar {
+    display: flex; align-items: center; gap: 6px; padding: 10px 16px;
+    background: var(--glass); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--glass-border); flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .tool-group {
+    display: flex; gap: 3px; align-items: center;
+    background: var(--surface); border-radius: var(--radius-sm);
+    padding: 3px; border: 1px solid var(--glass-border);
+  }
+
+  .tool-sep { width: 1px; height: 24px; background: var(--glass-border); margin: 0 6px; }
+
+  .tool-btn {
+    background: transparent; border: 1px solid transparent; color: var(--text2);
+    padding: 6px 12px; border-radius: var(--radius-xs); cursor: pointer;
+    font-size: 12px; font-weight: 500; font-family: inherit;
+    transition: all var(--transition); white-space: nowrap;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .tool-btn svg { width: 14px; height: 14px; opacity: 0.7; transition: opacity var(--transition); }
+  .tool-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+  .tool-btn:hover svg { opacity: 1; }
+  .tool-btn.active {
+    background: var(--accent); color: #fff;
+    box-shadow: 0 2px 8px var(--accent-glow);
+  }
+  .tool-btn.active svg { opacity: 1; }
+
+  .tool-btn .kbd {
+    font-size: 9px; color: var(--text3); background: rgba(255,255,255,0.06);
+    padding: 1px 4px; border-radius: 3px; font-weight: 600;
+    margin-left: 2px; border: 1px solid rgba(255,255,255,0.06);
+  }
+  .tool-btn.active .kbd { background: rgba(255,255,255,0.2); color: rgba(255,255,255,0.8); border-color: transparent; }
+
+  .tool-btn.disabled { opacity: 0.35; pointer-events: none; }
+
+  .zoom-control {
+    display: flex; align-items: center; gap: 8px; margin-left: 8px;
+  }
+  .zoom-control label { font-size: 11px; color: var(--text3); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+  .zoom-slider {
+    -webkit-appearance: none; width: 90px; height: 4px;
+    background: rgba(255,255,255,0.08); border-radius: 4px; outline: none;
+  }
+  .zoom-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    background: var(--accent2); border-radius: 50%; cursor: pointer;
+    box-shadow: 0 0 8px var(--accent-glow);
+    transition: transform var(--transition);
+  }
+  .zoom-slider::-webkit-slider-thumb:hover { transform: scale(1.2); }
+  .zoom-val { font-size: 12px; color: var(--accent2); min-width: 36px; font-weight: 600; }
+
+  .slide-nav {
+    display: flex; gap: 4px; align-items: center; margin-left: auto;
+  }
+  .nav-btn {
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    background: var(--surface); border: 1px solid var(--glass-border);
+    color: var(--text2); border-radius: var(--radius-xs); cursor: pointer;
+    font-size: 16px; transition: all var(--transition);
+  }
+  .nav-btn:hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-soft); }
+  .nav-label { font-size: 12px; color: var(--text3); min-width: 60px; text-align: center; font-weight: 500; }
+
+  .canvas-viewport {
+    flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .slide-container {
+    position: relative; display: inline-block;
+    border-radius: 6px; overflow: hidden;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
+    transition: box-shadow var(--transition);
+  }
+  .slide-container:hover { box-shadow: 0 16px 56px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06); }
+  .slide-container img#slide-img { display: block; max-width: 100%; transition: opacity 0.3s ease; }
+  .overlay-canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+
+  /* ── Right Panel ───────────────────────────────────────────────────── */
+  .right-panel {
+    width: 290px;
+    background: linear-gradient(180deg, rgba(14,18,32,0.97), rgba(12,16,28,0.98));
+    backdrop-filter: blur(12px);
+    border-left: 1px solid var(--glass-border);
+    display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
+  }
+
+  .panel-tabs {
+    display: flex; border-bottom: 1px solid var(--glass-border);
+    position: relative; padding: 0 4px;
+  }
+  .panel-tab {
+    flex: 1; padding: 12px 8px; text-align: center; font-size: 12px; font-weight: 500;
+    cursor: pointer; color: var(--text3); transition: all var(--transition);
+    position: relative; z-index: 1;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .panel-tab svg { width: 14px; height: 14px; opacity: 0.5; transition: opacity var(--transition); }
+  .panel-tab:hover { color: var(--text2); }
+  .panel-tab:hover svg { opacity: 0.7; }
+  .panel-tab.active { color: var(--text); }
+  .panel-tab.active svg { opacity: 1; }
+  .panel-tab.active::after {
+    content: ''; position: absolute; bottom: -1px; left: 12px; right: 12px; height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent3));
+    border-radius: 2px;
+  }
+
+  .panel-body { flex: 1; overflow-y: auto; padding: 14px; }
+
+  /* Overlay list */
+  .ov-list { display: flex; flex-direction: column; gap: 6px; }
+  .ov-item {
+    background: var(--surface); border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm); padding: 10px 12px; cursor: pointer;
+    transition: all var(--transition);
+  }
+  .ov-item:hover { border-color: var(--glass-border-hover); background: rgba(30,40,60,0.5); }
+  .ov-item.selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-glow); }
+  .ov-item .ov-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .ov-item .ov-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .ov-item .ov-type { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+  .ov-item .ov-preview { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ov-actions { display: flex; gap: 4px; margin-top: 8px; }
+
+  /* Form fields */
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block; font-size: 10px; color: var(--text3); margin-bottom: 5px;
+    text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600;
+  }
+  .field input, .field textarea, .field select {
+    width: 100%; background: var(--surface); border: 1px solid var(--glass-border);
+    color: var(--text); padding: 8px 12px; border-radius: var(--radius-xs);
+    font-size: 13px; font-family: inherit; outline: none; transition: all var(--transition);
+  }
+  .field input:focus, .field textarea:focus, .field select:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .field textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
+  .field-row { display: flex; gap: 8px; }
+  .field-row .field { flex: 1; }
+  .field select { cursor: pointer; }
+
+  input[type="color"] {
+    padding: 2px; height: 36px; cursor: pointer; border-radius: var(--radius-xs);
+    background: var(--surface); border: 1px solid var(--glass-border);
+  }
+  input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+  input[type="color"]::-webkit-color-swatch { border-radius: 4px; border: none; }
+
+  /* Toggle switch */
+  .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .toggle-row input[type="checkbox"] { display: none; }
+  .toggle-switch {
+    width: 36px; height: 20px; background: rgba(255,255,255,0.08);
+    border-radius: 20px; cursor: pointer; position: relative; transition: background var(--transition);
+    flex-shrink: 0;
+  }
+  .toggle-switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; background: #fff; border-radius: 50%;
+    transition: transform var(--transition); box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+  .toggle-row input:checked + .toggle-switch { background: var(--accent); }
+  .toggle-row input:checked + .toggle-switch::after { transform: translateX(16px); }
+
+  .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .checkbox-row input { width: auto; accent-color: var(--accent); }
+
+  .range-val { font-size: 12px; color: var(--accent2); min-width: 36px; font-weight: 600; }
+
+  /* Notes area */
+  .notes-area textarea {
+    width: 100%; background: var(--surface); border: 1px solid var(--glass-border);
+    color: var(--text); padding: 12px; border-radius: var(--radius-sm);
+    font-size: 13px; font-family: inherit; outline: none; resize: vertical;
+    min-height: 160px; margin-top: 8px; line-height: 1.6;
+    transition: border-color var(--transition);
+  }
+  .notes-area textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+  .section-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--text3); font-weight: 600; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .section-title svg { width: 12px; height: 12px; opacity: 0.5; }
+
+  .divider { border-top: 1px solid var(--glass-border); margin: 12px 0; padding-top: 12px; }
+
+  /* ── Toast ─────────────────────────────────────────────────────────── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--glass); backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    color: #fff; padding: 12px 20px; border-radius: var(--radius);
+    font-size: 13px; font-weight: 500; font-family: inherit;
+    transform: translateY(20px); opacity: 0;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none; z-index: 999;
+    display: flex; align-items: center; gap: 10px;
+    box-shadow: var(--shadow-lg);
+  }
+  #toast .toast-icon { width: 18px; height: 18px; flex-shrink: 0; }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.success { border-color: rgba(52,211,153,0.3); }
+  #toast.success .toast-icon { color: var(--green); }
+  #toast.error { border-color: rgba(248,113,113,0.3); }
+  #toast.error .toast-icon { color: var(--red); }
+  #toast.info { border-color: rgba(59,130,246,0.3); }
+  #toast.info .toast-icon { color: var(--accent2); }
+
+  /* ── Drag & Drop Overlay ───────────────────────────────────────────── */
+  .drop-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(10,14,26,0.92); backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px;
+  }
+  .drop-overlay.active { display: flex; }
+  .drop-box {
+    border: 2px dashed var(--accent); border-radius: 24px;
+    padding: 60px 80px; text-align: center;
+    animation: dropPulse 2s ease-in-out infinite;
+  }
+  .drop-box svg { width: 48px; height: 48px; color: var(--accent2); margin-bottom: 12px; }
+  .drop-box h3 { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+  .drop-box p { font-size: 14px; color: var(--text3); }
+  @keyframes dropPulse { 0%,100% { border-color: var(--accent); } 50% { border-color: var(--accent3); } }
+
+  /* ── Loading Overlay ───────────────────────────────────────────────── */
+  .loading-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(10,14,26,0.85); backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px;
+  }
+  .loading-overlay.active { display: flex; }
+  .loading-spinner {
+    width: 40px; height: 40px;
+    border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--accent2);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  .loading-overlay p { font-size: 14px; color: var(--text2); font-weight: 500; }
+
+  .empty-state {
+    text-align: center; color: var(--text3); padding: 32px 16px; font-size: 13px; line-height: 1.6;
+  }
+  .empty-state svg { width: 32px; height: 32px; color: var(--text3); opacity: 0.3; margin-bottom: 8px; }
+
+  /* ── Animations ────────────────────────────────────────────────────── */
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-in { animation: fadeIn 0.3s ease; }
+
+  /* ── NEW: Auto-save indicator ──────────────────────────────────────── */
+  .save-indicator {
+    display: inline-flex; align-items: center; gap: 4px; margin-left: 2px;
+  }
+  .save-dot {
+    width: 8px; height: 8px; border-radius: 50%; display: none;
+  }
+  .save-dot.dirty {
+    display: inline-block; background: var(--orange);
+    animation: pulseDot 1.2s ease-in-out infinite;
+  }
+  .save-dot.saved {
+    display: inline-block; background: var(--green);
+    animation: none;
+  }
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+  .save-check { display: none; color: var(--green); }
+  .save-check.show { display: inline-flex; }
+  .save-check svg { width: 14px; height: 14px; }
+
+  /* ── NEW: Thumb drag reorder ───────────────────────────────────────── */
+  .thumb-item.drag-over-top { border-top: 3px solid var(--accent2); }
+  .thumb-item.drag-over-bottom { border-bottom: 3px solid var(--accent2); }
+  .thumb-item.dragging { opacity: 0.4; }
+
+  /* ── NEW: Presentation mode ────────────────────────────────────────── */
+  #presentation-mode {
+    position: fixed; inset: 0; z-index: 200;
+    background: #000; display: none;
+    align-items: center; justify-content: center;
+    cursor: none;
+  }
+  #presentation-mode.active { display: flex; }
+  #presentation-mode canvas {
+    max-width: 100vw; max-height: 100vh; object-fit: contain;
+  }
+
+  /* ── NEW: Context menu ─────────────────────────────────────────────── */
+  #context-menu {
+    position: fixed; z-index: 150; display: none;
+    background: rgba(20, 28, 50, 0.92); backdrop-filter: blur(24px);
+    border: 1px solid var(--glass-border-hover);
+    border-radius: var(--radius-sm); padding: 6px 0;
+    min-width: 180px; box-shadow: var(--shadow-lg);
+  }
+  #context-menu.show { display: block; }
+  .ctx-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px; cursor: pointer; font-size: 13px;
+    color: var(--text2); transition: all var(--transition);
+    border: none; background: none; width: 100%; font-family: inherit;
+    text-align: left;
+  }
+  .ctx-item:hover { background: var(--accent-soft); color: var(--text); }
+  .ctx-item svg { width: 14px; height: 14px; opacity: 0.6; }
+  .ctx-sep { height: 1px; background: var(--glass-border); margin: 4px 0; }
+
+  /* ── NEW: Shortcuts modal ──────────────────────────────────────────── */
+  #shortcuts-modal {
+    position: fixed; inset: 0; z-index: 180; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(10,14,26,0.7); backdrop-filter: blur(6px);
+  }
+  #shortcuts-modal.show { display: flex; }
+  .shortcuts-card {
+    background: rgba(20, 28, 50, 0.92); backdrop-filter: blur(24px);
+    border: 1px solid var(--glass-border-hover);
+    border-radius: var(--radius); padding: 28px 32px;
+    min-width: 480px; max-width: 560px; max-height: 80vh; overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+  }
+  .shortcuts-card h2 {
+    font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .shortcuts-card h2 svg { width: 20px; height: 20px; color: var(--accent2); }
+  .sc-category { margin-bottom: 16px; }
+  .sc-category h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text3); font-weight: 600; margin-bottom: 8px; }
+  .sc-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; }
+  .sc-row span { font-size: 13px; color: var(--text2); }
+  .sc-row kbd {
+    font-size: 11px; font-family: 'Inter', monospace; font-weight: 600;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text); padding: 3px 8px; border-radius: 5px;
+  }
+
+  /* ── NEW: OCR regions highlight ────────────────────────────────────── */
+  .ocr-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(59,130,246,0.15); color: var(--accent2);
+    font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
+    margin-left: 6px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Drag & Drop Overlay -->
+<div class="drop-overlay" id="drop-overlay">
+  <div class="drop-box">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+    <h3>Drop your PPTX file here</h3>
+    <p>Release to upload and process slides</p>
+  </div>
+</div>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <p id="loading-text">Processing...</p>
+</div>
+
+<!-- Presentation Mode -->
+<div id="presentation-mode">
+  <canvas id="pres-canvas"></canvas>
+</div>
+
+<!-- Context Menu -->
+<div id="context-menu">
+  <button class="ctx-item" onclick="ctxEdit()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    Edit
+  </button>
+  <button class="ctx-item" onclick="duplicateSelected()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+    Duplicate
+  </button>
+  <button class="ctx-item" onclick="deleteSelected()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+    Delete
+  </button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" onclick="bringToFront()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17,11 12,6 7,11"/><polyline points="17,18 12,13 7,18"/></svg>
+    Bring to Front
+  </button>
+  <button class="ctx-item" onclick="sendToBack()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7,13 12,18 17,13"/><polyline points="7,6 12,11 17,6"/></svg>
+    Send to Back
+  </button>
+</div>
+
+<!-- Shortcuts Modal -->
+<div id="shortcuts-modal">
+  <div class="shortcuts-card">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
+      Keyboard Shortcuts
+    </h2>
+    <div class="sc-category">
+      <h3>Tools</h3>
+      <div class="sc-row"><span>Select tool</span><kbd>S</kbd></div>
+      <div class="sc-row"><span>Text tool</span><kbd>T</kbd></div>
+      <div class="sc-row"><span>Rectangle tool</span><kbd>R</kbd></div>
+      <div class="sc-row"><span>Cover tool</span><kbd>C</kbd></div>
+    </div>
+    <div class="sc-category">
+      <h3>Editing</h3>
+      <div class="sc-row"><span>Undo</span><kbd>Ctrl+Z</kbd></div>
+      <div class="sc-row"><span>Redo</span><kbd>Ctrl+Y</kbd></div>
+      <div class="sc-row"><span>Copy overlay</span><kbd>Ctrl+C</kbd></div>
+      <div class="sc-row"><span>Paste overlay</span><kbd>Ctrl+V</kbd></div>
+      <div class="sc-row"><span>Delete overlay</span><kbd>Delete</kbd></div>
+      <div class="sc-row"><span>Duplicate</span><kbd>Ctrl+D</kbd></div>
+      <div class="sc-row"><span>Save</span><kbd>Ctrl+S</kbd></div>
+    </div>
+    <div class="sc-category">
+      <h3>Navigation</h3>
+      <div class="sc-row"><span>Previous slide</span><kbd>Left</kbd></div>
+      <div class="sc-row"><span>Next slide</span><kbd>Right</kbd></div>
+      <div class="sc-row"><span>Presentation mode</span><kbd>F5</kbd></div>
+      <div class="sc-row"><span>Toggle grid</span><kbd>G</kbd></div>
+      <div class="sc-row"><span>Show shortcuts</span><kbd>?</kbd></div>
+      <div class="sc-row"><span>Escape</span><kbd>Esc</kbd></div>
+    </div>
+  </div>
+</div>
+
+<!-- Header -->
+<header>
+  <!-- Left: Logo + Badge -->
+  <div class="nav-section">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
+      </div>
+      <div class="logo-text">
+        <span class="logo-brand">Surya</span>
+        <span class="logo-sub">Slide Editor</span>
+      </div>
+    </div>
+    <div class="nav-divider"></div>
+    <div class="badge">Cyber Resilience</div>
+  </div>
+
+  <!-- Center: Slide navigation pill -->
+  <div class="nav-section-center">
+    <div class="slide-pill" id="slide-pill">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      Slide <strong id="slide-num">1</strong> / <span id="slide-total">{{ num_slides }}</span>
+      <div class="pill-nav">
+        <button class="pill-nav-btn" onclick="gotoSlide(currentSlide-1)" title="Previous">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15,18 9,12 15,6"/></svg>
+        </button>
+        <button class="pill-nav-btn" onclick="gotoSlide(currentSlide+1)" title="Next">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9,18 15,12 9,6"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Action buttons -->
+  <div class="header-actions">
+    <div class="action-group">
+      <label class="btn-action" style="cursor:pointer" title="Upload PPTX file">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
+        <span class="act-label">Upload</span>
+        <input type="file" accept=".pptx" id="upload-input" onchange="uploadPPTX(this)" style="display:none">
+      </label>
+      <div class="group-sep"></div>
+      <button class="btn-action" onclick="removeLogos()" title="Remove NotebookLM watermark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg>
+        <span class="act-label">Remove Logo</span>
+      </button>
+    </div>
+
+    <div class="action-group">
+      <button class="btn-action" onclick="bakeOverlays()" title="Apply edits permanently into slide image">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><polyline points="16,8 12,16 8,8"/></svg>
+        <span class="act-label">Apply</span>
+      </button>
+      <div class="group-sep"></div>
+      <button class="btn-action" onclick="saveCurrentSlide()" title="Save (Ctrl+S)" id="save-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
+        <span class="act-label">Save</span>
+        <span class="save-indicator">
+          <span class="save-dot" id="save-dot"></span>
+          <span class="save-check" id="save-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg></span>
+        </span>
+      </button>
+      <div class="group-sep"></div>
+      <button class="btn-action accent" onclick="exportPPTX()" title="Export as PPTX">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span class="act-label">PPTX</span>
+      </button>
+      <div class="group-sep"></div>
+      <button class="btn-action" onclick="exportPDF()" title="Export as PDF">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <span class="act-label">PDF</span>
+      </button>
+    </div>
+
+    <div class="action-group">
+      <button class="btn-action" onclick="enterPresentation()" title="Presentation (F5)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21"/></svg>
+        <span class="act-label">Present</span>
+      </button>
+    </div>
+
+    <div class="action-group">
+      <a href="/video" class="btn-action" title="Video Logo Remover" style="text-decoration:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>
+        <span class="act-label">Video</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- Thumbnail strip -->
+  <div class="thumb-strip" id="thumb-strip">
+    {% for s in slides %}
+    <div class="thumb-item" id="thumb-{{ s.index }}" data-index="{{ s.index }}" onclick="gotoSlide({{ s.index }})" draggable="true">
+      <img src="/static/{{ s.file }}" loading="lazy" alt="Slide {{ s.index }}">
+      <div class="num">{{ s.index }}</div>
+      <div class="has-overlay"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Canvas area -->
+  <div class="canvas-area">
+    <div class="canvas-toolbar">
+      <div class="tool-group">
+        <button class="tool-btn active" id="tool-select" onclick="setTool('select')" title="Select/Move overlays">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
+          Select <span class="kbd">S</span>
+        </button>
+        <button class="tool-btn" id="tool-text" onclick="setTool('text')" title="Draw text box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,7 4,4 20,4 20,7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          Text <span class="kbd">T</span>
+        </button>
+        <button class="tool-btn" id="tool-rect" onclick="setTool('rect')" title="Draw rectangle shape">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+          Rect <span class="kbd">R</span>
+        </button>
+        <button class="tool-btn" id="tool-cover" onclick="setTool('cover')" title="Cover & Type tool">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/></svg>
+          Cover <span class="kbd">C</span>
+        </button>
+      </div>
+
+      <div class="tool-sep"></div>
+
+      <!-- Undo/Redo -->
+      <div class="tool-group">
+        <button class="tool-btn btn-sm disabled" id="btn-undo" onclick="undo()" title="Undo (Ctrl+Z)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+        </button>
+        <button class="tool-btn btn-sm disabled" id="btn-redo" onclick="redo()" title="Redo (Ctrl+Y)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 11-2.13-9.36L23 10"/></svg>
+        </button>
+      </div>
+
+      <div class="tool-sep"></div>
+
+      <button class="tool-btn btn-sm" onclick="deleteSelected()" title="Delete selected (Del)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+      </button>
+      <button class="tool-btn btn-sm" onclick="duplicateSelected()" title="Duplicate selected">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      </button>
+
+      <div class="tool-sep"></div>
+
+      <!-- Image overlay -->
+      <button class="tool-btn btn-sm" onclick="addImageOverlay()" title="Add Image Overlay">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
+        Image
+      </button>
+      <input type="file" id="image-upload-input" accept="image/*" style="display:none" onchange="handleImageUpload(this)">
+
+      <div class="tool-sep"></div>
+
+      <!-- Grid toggle -->
+      <button class="tool-btn btn-sm" id="btn-grid" onclick="toggleGrid()" title="Toggle snap grid (G)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        Grid <span class="kbd">G</span>
+      </button>
+
+      <div class="tool-sep"></div>
+
+      <!-- OCR -->
+      <button class="tool-btn btn-sm" onclick="detectText()" title="Detect text via OCR" id="btn-ocr">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        OCR
+      </button>
+      <button class="tool-btn btn-sm" onclick="clearOCR()" title="Clear OCR regions" id="btn-clear-ocr" style="display:none">
+        Clear OCR
+      </button>
+
+      <div class="tool-sep"></div>
+
+      <div class="zoom-control">
+        <label>Zoom</label>
+        <input type="range" class="zoom-slider" min="30" max="120" value="70" id="zoom-range" oninput="setZoom(this.value)">
+        <span class="zoom-val" id="zoom-val">70%</span>
+        <button class="tool-btn btn-sm" onclick="fitToScreen()" title="Fit to screen" style="padding:4px 8px;margin-left:4px">Fit</button>
+      </div>
+
+      <div class="slide-nav">
+        <button class="nav-btn" onclick="gotoSlide(currentSlide-1)" title="Previous slide">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+        </button>
+        <span class="nav-label" id="slide-nav-label">1 / {{ num_slides }}</span>
+        <button class="nav-btn" onclick="gotoSlide(currentSlide+1)" title="Next slide">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="canvas-viewport" id="viewport">
+      <div class="slide-container" id="slide-container" style="width:933px">
+        <img id="slide-img" src="/static/slides/slide-01.jpg" alt="Slide" style="width:100%">
+        <canvas id="overlay-canvas" class="overlay-canvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="right-panel">
+    <div class="panel-tabs">
+      <div class="panel-tab active" id="tab-overlays" onclick="switchTab('overlays')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        Layers
+      </div>
+      <div class="panel-tab" id="tab-props" onclick="switchTab('props')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Properties
+      </div>
+      <div class="panel-tab" id="tab-notes" onclick="switchTab('notes')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>
+        Notes
+      </div>
+    </div>
+
+    <div class="panel-body" id="panel-overlays">
+      <div style="margin-bottom:12px; display:flex; gap:6px">
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick="addOverlay('text')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Text
+        </button>
+        <button class="btn btn-glass btn-sm" onclick="addImageOverlay()" title="Add Image">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
+          Image
+        </button>
+      </div>
+      <div class="ov-list" id="ov-list">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          <div>No overlays yet</div>
+          <div style="font-size:11px;margin-top:4px">Use the toolbar to add text or shapes</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-body" id="panel-props" style="display:none">
+      <div id="props-empty" class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4"/></svg>
+        <div>Select an overlay to edit</div>
+      </div>
+      <div id="props-form" style="display:none" class="fade-in">
+        <div class="field" id="field-text">
+          <label>Text Content</label>
+          <textarea id="prop-text" oninput="updateSelectedProp('text', this.value)" rows="3" placeholder="Enter text..."></textarea>
+        </div>
+        <div class="field">
+          <label>Font Family</label>
+          <select id="prop-fontfamily" onchange="updateSelectedProp('fontFamily', this.value)" style="font-family:inherit">
+            <option value="Segoe UI" style="font-family:'Segoe UI'">Segoe UI</option>
+            <option value="Arial" style="font-family:Arial">Arial</option>
+            <option value="Calibri" style="font-family:Calibri">Calibri</option>
+            <option value="Cambria" style="font-family:Cambria">Cambria</option>
+            <option value="Verdana" style="font-family:Verdana">Verdana</option>
+            <option value="Georgia" style="font-family:Georgia">Georgia</option>
+            <option value="Tahoma" style="font-family:Tahoma">Tahoma</option>
+            <option value="Trebuchet MS" style="font-family:'Trebuchet MS'">Trebuchet MS</option>
+            <option value="Candara" style="font-family:Candara">Candara</option>
+            <option value="Corbel" style="font-family:Corbel">Corbel</option>
+            <option value="Impact" style="font-family:Impact">Impact</option>
+            <option value="Consolas" style="font-family:Consolas">Consolas</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Font Size</label>
+            <input type="number" id="prop-fontsize" value="18" min="8" max="72" oninput="updateSelectedProp('fontSize', +this.value)">
+          </div>
+          <div class="field">
+            <label>Text Color</label>
+            <input type="color" id="prop-color" value="#FFFFFF" oninput="updateSelectedProp('color', this.value)">
+          </div>
+        </div>
+        <div class="field">
+          <label>Alignment</label>
+          <select id="prop-align" onchange="updateSelectedProp('align', this.value)">
+            <option value="left">Left</option>
+            <option value="center">Center</option>
+            <option value="right">Right</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <div class="field checkbox-row">
+            <input type="checkbox" id="prop-bold" onchange="updateSelectedProp('bold', this.checked)">
+            <label style="display:inline;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)">Bold</label>
+          </div>
+          <div class="field checkbox-row">
+            <input type="checkbox" id="prop-italic" onchange="updateSelectedProp('italic', this.checked)">
+            <label style="display:inline;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)">Italic</label>
+          </div>
+        </div>
+        <div class="field checkbox-row">
+          <input type="checkbox" id="prop-underline" onchange="updateSelectedProp('underline', this.checked)">
+          <label style="display:inline;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)">Underline</label>
+        </div>
+        <div class="field" id="field-bgcolor">
+          <label>Background Color</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="color" id="prop-bgcolor" value="#1a1d27" oninput="updateSelectedProp('bgColor', this.value)">
+            <div class="toggle-row">
+              <input type="checkbox" id="prop-nobg" onchange="toggleNoBg(this.checked)">
+              <label class="toggle-switch" for="prop-nobg"></label>
+              <span style="font-size:12px;color:var(--text2)">Transparent</span>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Letter Spacing</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="range" class="zoom-slider" min="-5" max="20" step="0.5" value="0" id="prop-letterspacing" oninput="updateSelectedProp('letterSpacing', +this.value);document.getElementById('ls-val').textContent=this.value+'px'" style="flex:1">
+            <span class="range-val" id="ls-val">0px</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>Line Height</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="range" class="zoom-slider" min="0.8" max="3" step="0.1" value="1.3" id="prop-lineheight" oninput="updateSelectedProp('lineHeight', +this.value);document.getElementById('lh-val').textContent=this.value+'x'" style="flex:1">
+            <span class="range-val" id="lh-val">1.3x</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>Text Transform</label>
+          <select id="prop-texttransform" onchange="updateSelectedProp('textTransform', this.value)">
+            <option value="none">None</option>
+            <option value="uppercase">UPPERCASE</option>
+            <option value="lowercase">lowercase</option>
+            <option value="capitalize">Title Case</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>List Style</label>
+          <select id="prop-liststyle" onchange="updateSelectedProp('listStyle', this.value)">
+            <option value="none">None</option>
+            <option value="bullet">&bull; Bullet</option>
+            <option value="number">1. Numbered</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Text Effects</label>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div class="toggle-row">
+              <input type="checkbox" id="prop-shadow" onchange="updateSelectedProp('shadow', this.checked)">
+              <label class="toggle-switch" for="prop-shadow"></label>
+              <span style="font-size:12px;color:var(--text2)">Shadow</span>
+              <input type="color" id="prop-shadowcolor" value="#000000" oninput="updateSelectedProp('shadowColor', this.value)" style="width:28px;height:24px;padding:1px;margin-left:auto">
+            </div>
+            <div class="toggle-row">
+              <input type="checkbox" id="prop-outline" onchange="updateSelectedProp('outline', this.checked)">
+              <label class="toggle-switch" for="prop-outline"></label>
+              <span style="font-size:12px;color:var(--text2)">Outline</span>
+              <input type="color" id="prop-outlinecolor" value="#000000" oninput="updateSelectedProp('outlineColor', this.value)" style="width:28px;height:24px;padding:1px;margin-left:auto">
+            </div>
+            <div class="toggle-row">
+              <input type="checkbox" id="prop-autofit" onchange="updateSelectedProp('autoFit', this.checked)">
+              <label class="toggle-switch" for="prop-autofit"></label>
+              <span style="font-size:12px;color:var(--text2)">Auto-fit text</span>
+            </div>
+          </div>
+        </div>
+        <div class="field" id="field-fillcolor" style="display:none">
+          <label>Fill Color</label>
+          <input type="color" id="prop-fillcolor" value="#2563EB" oninput="updateSelectedProp('fillColor', this.value)">
+        </div>
+        <div class="field" id="field-imgsrc" style="display:none">
+          <label>Image Source</label>
+          <button class="btn btn-glass btn-sm" onclick="replaceImageOverlay()">Replace Image</button>
+        </div>
+        <div class="field">
+          <label>Opacity</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="range" class="zoom-slider" min="0" max="1" step="0.05" id="prop-opacity" value="1" oninput="updateSelectedProp('opacity', +this.value);document.getElementById('opacity-val').textContent=Math.round(this.value*100)+'%'" style="flex:1">
+            <span class="range-val" id="opacity-val">100%</span>
+          </div>
+        </div>
+
+        <div class="divider">
+          <div class="section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 3H3v7h18V3zM21 14H3v7h18v-7z"/></svg>
+            Position & Size
+          </div>
+          <div class="field-row">
+            <div class="field"><label>X (%)</label><input type="number" id="prop-x" step="0.1" oninput="updateSelectedPos()"></div>
+            <div class="field"><label>Y (%)</label><input type="number" id="prop-y" step="0.1" oninput="updateSelectedPos()"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>W (%)</label><input type="number" id="prop-w" step="0.1" oninput="updateSelectedPos()"></div>
+            <div class="field"><label>H (%)</label><input type="number" id="prop-h" step="0.1" oninput="updateSelectedPos()"></div>
+          </div>
+        </div>
+        <button class="btn btn-danger btn-sm" style="width:100%;margin-top:12px" onclick="deleteSelected()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+          Delete Overlay
+        </button>
+      </div>
+    </div>
+
+    <div class="panel-body notes-area" id="panel-notes" style="display:none">
+      <div class="section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+        Speaker Notes
+      </div>
+      <textarea id="notes-text" placeholder="Add speaker notes for this slide..." oninput="markDirty()"></textarea>
+      <button class="btn btn-primary btn-sm" style="margin-top:10px;width:100%" onclick="saveCurrentSlide()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>
+        Save Notes
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div id="toast">
+  <svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+  <span id="toast-msg">Saved!</span>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════════════
+const NUM_SLIDES = {{ num_slides }};
+let currentSlide = 1;
+let overlays = [];
+let selectedIdx = -1;
+let currentTool = 'select';
+let isDragging = false;
+let isDrawing = false;
+let drawStart = null;
+let dragOffset = { x: 0, y: 0 };
+let dirty = false;
+let zoom = 70;
+
+// Undo/Redo stacks (per slide, reset on nav)
+let undoStack = [];
+let redoStack = [];
+const MAX_UNDO = 50;
+
+// Resize handles
+let resizing = null; // {handle:'nw'|'n'|'ne'|'e'|'se'|'s'|'sw'|'w', startX, startY, origOverlay}
+
+// Snap grid
+let gridEnabled = false;
+
+// OCR regions
+let ocrRegions = [];
+
+// Clipboard for copy/paste
+let clipboardOverlay = null;
+
+// Presentation mode
+let presMode = false;
+let presSlide = 1;
+
+// Image cache for overlay images
+const imageCache = {};
+
+// Context menu
+let ctxTarget = -1;
+
+const canvas  = document.getElementById('overlay-canvas');
+const ctx     = canvas.getContext('2d');
+const slideImg = document.getElementById('slide-img');
+const container = document.getElementById('slide-container');
+
+// ══════════════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  gotoSlide(1);
+  setZoom(70);
+  initThumbDrag();
+});
+
+window.addEventListener('beforeunload', e => {
+  if (dirty) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// UNDO / REDO
+// ══════════════════════════════════════════════════════════════════════════
+function pushUndo() {
+  undoStack.push(JSON.stringify(overlays));
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack = [];
+  updateUndoButtons();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  redoStack.push(JSON.stringify(overlays));
+  overlays = JSON.parse(undoStack.pop());
+  selectedIdx = -1;
+  renderOverlayList(); renderOverlays(); hidePropsForm(); markDirty();
+  updateUndoButtons();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  undoStack.push(JSON.stringify(overlays));
+  overlays = JSON.parse(redoStack.pop());
+  selectedIdx = -1;
+  renderOverlayList(); renderOverlays(); hidePropsForm(); markDirty();
+  updateUndoButtons();
+}
+
+function updateUndoButtons() {
+  document.getElementById('btn-undo').classList.toggle('disabled', undoStack.length === 0);
+  document.getElementById('btn-redo').classList.toggle('disabled', redoStack.length === 0);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SLIDE NAVIGATION
+// ══════════════════════════════════════════════════════════════════════════
+async function gotoSlide(n) {
+  if (n < 1 || n > NUM_SLIDES) return;
+  if (dirty) await saveCurrentSlide(true);
+
+  currentSlide = n;
+  const pad = String(n).padStart(2, '0');
+
+  slideImg.style.opacity = '0.5';
+  slideImg.src = `/static/slides/slide-${pad}.jpg`;
+  slideImg.onload = () => {
+    slideImg.style.opacity = '1';
+    resizeCanvas();
+    renderOverlays();
+  };
+
+  document.getElementById('slide-num').textContent = n;
+  document.getElementById('slide-nav-label').textContent = `${n} / ${NUM_SLIDES}`;
+
+  document.querySelectorAll('.thumb-item').forEach(t => t.classList.remove('active'));
+  document.getElementById(`thumb-${n}`)?.classList.add('active');
+  document.getElementById(`thumb-${n}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+  const resp = await fetch(`/api/slide/${n}`);
+  const data = await resp.json();
+  overlays = data.overlays || [];
+  document.getElementById('notes-text').value = data.notes || '';
+  selectedIdx = -1;
+  dirty = false;
+  undoStack = [];
+  redoStack = [];
+  ocrRegions = [];
+  document.getElementById('btn-clear-ocr').style.display = 'none';
+  updateUndoButtons();
+  updateSaveIndicator();
+  renderOverlayList();
+  renderOverlays();
+  hidePropsForm();
+  preloadOverlayImages();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CANVAS SIZING & ZOOM
+// ══════════════════════════════════════════════════════════════════════════
+function resizeCanvas() {
+  canvas.width  = slideImg.offsetWidth;
+  canvas.height = slideImg.offsetHeight;
+  canvas.style.width  = slideImg.offsetWidth + 'px';
+  canvas.style.height = slideImg.offsetHeight + 'px';
+}
+
+function setZoom(val) {
+  zoom = +val;
+  document.getElementById('zoom-val').textContent = val + '%';
+  document.getElementById('zoom-range').value = val;
+  const w = Math.round(9.33 * zoom * 1.5);
+  container.style.width = w + 'px';
+  setTimeout(() => { resizeCanvas(); renderOverlays(); }, 50);
+}
+
+function fitToScreen() {
+  const vp = document.getElementById('viewport');
+  const vpW = vp.clientWidth - 48;
+  const vpH = vp.clientHeight - 48;
+  const slideAspect = 16 / 9;
+  const fitW = vpW;
+  const fitH = vpW / slideAspect;
+  let targetW;
+  if (fitH > vpH) {
+    targetW = vpH * slideAspect;
+  } else {
+    targetW = fitW;
+  }
+  const newZoom = Math.round(targetW / (9.33 * 1.5));
+  setZoom(Math.min(120, Math.max(30, newZoom)));
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// TOOL MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════
+function setTool(t) {
+  currentTool = t;
+  ['select','text','rect','cover'].forEach(id => {
+    document.getElementById('tool-' + id)?.classList.toggle('active', id === t);
+  });
+  canvas.style.cursor = t === 'select' ? 'default' : 'crosshair';
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SNAP GRID
+// ══════════════════════════════════════════════════════════════════════════
+function toggleGrid() {
+  gridEnabled = !gridEnabled;
+  document.getElementById('btn-grid').classList.toggle('active', gridEnabled);
+  renderOverlays();
+}
+
+function snapVal(v) {
+  if (!gridEnabled) return v;
+  return Math.round(v * 20) / 20; // snap to 5%
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CANVAS EVENTS
+// ══════════════════════════════════════════════════════════════════════════
+canvas.addEventListener('mousedown', onMouseDown);
+canvas.addEventListener('mousemove', onMouseMove);
+canvas.addEventListener('mouseup',   onMouseUp);
+canvas.addEventListener('dblclick',  onDblClick);
+canvas.addEventListener('contextmenu', onContextMenu);
+
+function normX(clientX) { const r = canvas.getBoundingClientRect(); return (clientX - r.left) / canvas.width; }
+function normY(clientY) { const r = canvas.getBoundingClientRect(); return (clientY - r.top)  / canvas.height; }
+
+function hitTest(nx, ny) {
+  for (let i = overlays.length - 1; i >= 0; i--) {
+    const o = overlays[i];
+    if (nx >= o.x && nx <= o.x + o.w && ny >= o.y && ny <= o.y + o.h) return i;
+  }
+  return -1;
+}
+
+// Resize handle hit test - returns handle name or null
+function hitHandle(nx, ny) {
+  if (selectedIdx < 0) return null;
+  const o = overlays[selectedIdx];
+  const hSize = 8 / canvas.width; // handle radius in normalized coords
+  const hSizeY = 8 / canvas.height;
+  const handles = {
+    'nw': [o.x, o.y],
+    'n':  [o.x + o.w/2, o.y],
+    'ne': [o.x + o.w, o.y],
+    'e':  [o.x + o.w, o.y + o.h/2],
+    'se': [o.x + o.w, o.y + o.h],
+    's':  [o.x + o.w/2, o.y + o.h],
+    'sw': [o.x, o.y + o.h],
+    'w':  [o.x, o.y + o.h/2],
+  };
+  for (const [name, [hx, hy]] of Object.entries(handles)) {
+    if (Math.abs(nx - hx) < hSize && Math.abs(ny - hy) < hSizeY) return name;
+  }
+  return null;
+}
+
+function onMouseDown(e) {
+  if (e.button === 2) return; // right-click handled separately
+  hideContextMenu();
+  const nx = normX(e.clientX), ny = normY(e.clientY);
+
+  if (currentTool === 'select') {
+    // Check resize handles first
+    const handle = hitHandle(nx, ny);
+    if (handle && selectedIdx >= 0) {
+      pushUndo();
+      const o = overlays[selectedIdx];
+      resizing = { handle, startX: nx, startY: ny, orig: { x: o.x, y: o.y, w: o.w, h: o.h } };
+      return;
+    }
+    const hit = hitTest(nx, ny);
+    if (hit >= 0) {
+      if (hit !== selectedIdx) pushUndo();
+      selectOverlay(hit);
+      isDragging = true;
+      dragOffset = { x: nx - overlays[hit].x, y: ny - overlays[hit].y };
+    } else {
+      deselectOverlay();
+    }
+  } else {
+    isDrawing = true;
+    drawStart = { x: nx, y: ny };
+  }
+}
+
+function onMouseMove(e) {
+  const nx = normX(e.clientX), ny = normY(e.clientY);
+
+  // Resize
+  if (resizing && selectedIdx >= 0) {
+    const o = overlays[selectedIdx];
+    const orig = resizing.orig;
+    const dx = nx - resizing.startX;
+    const dy = ny - resizing.startY;
+    const shift = e.shiftKey;
+    let newX = orig.x, newY = orig.y, newW = orig.w, newH = orig.h;
+
+    const h = resizing.handle;
+    if (h.includes('e')) newW = Math.max(0.02, orig.w + dx);
+    if (h.includes('w')) { newW = Math.max(0.02, orig.w - dx); newX = orig.x + dx; }
+    if (h.includes('s')) newH = Math.max(0.01, orig.h + dy);
+    if (h.includes('n')) { newH = Math.max(0.01, orig.h - dy); newY = orig.y + dy; }
+
+    if (shift && (h === 'nw' || h === 'ne' || h === 'se' || h === 'sw')) {
+      const aspect = orig.w / orig.h;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        newH = newW / aspect;
+        if (h.includes('n')) newY = orig.y + orig.h - newH;
+      } else {
+        newW = newH * aspect;
+        if (h.includes('w')) newX = orig.x + orig.w - newW;
+      }
+    }
+
+    o.x = snapVal(Math.max(0, newX));
+    o.y = snapVal(Math.max(0, newY));
+    o.w = snapVal(newW);
+    o.h = snapVal(newH);
+    renderOverlays();
+    updatePropsForm();
+    markDirty();
+    return;
+  }
+
+  if (isDragging && selectedIdx >= 0) {
+    overlays[selectedIdx].x = snapVal(Math.max(0, nx - dragOffset.x));
+    overlays[selectedIdx].y = snapVal(Math.max(0, ny - dragOffset.y));
+    renderOverlays();
+    updatePropsForm();
+    markDirty();
+  } else if (isDrawing && drawStart) {
+    renderOverlays();
+    const x = Math.min(drawStart.x, nx), y = Math.min(drawStart.y, ny);
+    const w = Math.abs(nx - drawStart.x), h = Math.abs(ny - drawStart.y);
+    ctx.save();
+    ctx.strokeStyle = currentTool === 'text' ? '#60a5fa' : currentTool === 'cover' ? '#f87171' : '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6,4]);
+    ctx.strokeRect(x * canvas.width, y * canvas.height, w * canvas.width, h * canvas.height);
+    ctx.restore();
+  } else if (currentTool === 'select') {
+    // Change cursor for handles
+    const handle = hitHandle(nx, ny);
+    if (handle) {
+      const cursors = { nw:'nw-resize', n:'n-resize', ne:'ne-resize', e:'e-resize', se:'se-resize', s:'s-resize', sw:'sw-resize', w:'w-resize' };
+      canvas.style.cursor = cursors[handle] || 'default';
+    } else {
+      const hit = hitTest(nx, ny);
+      canvas.style.cursor = hit >= 0 ? 'move' : 'default';
+    }
+  }
+}
+
+function onMouseUp(e) {
+  if (resizing) {
+    resizing = null;
+    return;
+  }
+
+  if (isDragging && selectedIdx >= 0) {
+    // drag completed
+  }
+
+  if (isDrawing && drawStart) {
+    const nx = normX(e.clientX), ny = normY(e.clientY);
+    let x = snapVal(Math.min(drawStart.x, nx)), y = snapVal(Math.min(drawStart.y, ny));
+    let w = snapVal(Math.abs(nx - drawStart.x)), h = snapVal(Math.abs(ny - drawStart.y));
+    if (w > 0.02 && h > 0.01) {
+      if (currentTool === 'cover') {
+        doCoverTool(x, y, w, h);
+      } else {
+        pushUndo();
+        const ov = createOverlay(currentTool, x, y, w, h);
+        overlays.push(ov);
+        selectOverlay(overlays.length - 1);
+        setTool('select');
+        renderOverlayList();
+        markDirty();
+        if (currentTool === 'text') switchTab('props');
+      }
+    }
+  }
+  isDragging = false;
+  isDrawing  = false;
+  drawStart  = null;
+}
+
+function onDblClick(e) {
+  const nx = normX(e.clientX), ny = normY(e.clientY);
+  const hit = hitTest(nx, ny);
+  if (hit >= 0 && overlays[hit].type === 'text') {
+    selectOverlay(hit);
+    switchTab('props');
+    startInlineEdit(hit);
+  }
+}
+
+function startInlineEdit(idx) {
+  const ov = overlays[idx];
+  if (!ov || ov.type !== 'text') return;
+  // Remove any existing inline editor
+  const existing = document.getElementById('inline-editor');
+  if (existing) existing.remove();
+
+  const rect = canvas.getBoundingClientRect();
+  const x = rect.left + ov.x * canvas.width;
+  const y = rect.top + ov.y * canvas.height;
+  const w = ov.w * canvas.width;
+  const h = ov.h * canvas.height;
+  const fs = Math.max(8, Math.round((ov.fontSize || 18) * (canvas.width / 933)));
+
+  const div = document.createElement('div');
+  div.id = 'inline-editor';
+  div.contentEditable = true;
+  div.style.cssText = `
+    position:fixed; left:${x}px; top:${y}px; width:${w}px; min-height:${h}px;
+    font-size:${fs}px; font-family:'${ov.fontFamily || 'Segoe UI'}', sans-serif;
+    font-weight:${ov.bold ? 'bold' : 'normal'}; font-style:${ov.italic ? 'italic' : 'normal'};
+    color:${ov.color || '#fff'}; text-align:${ov.align || 'left'};
+    background:${ov.bgColor && ov.bgColor !== 'transparent' ? ov.bgColor : 'rgba(0,0,0,0.5)'};
+    border:2px solid var(--accent); border-radius:4px;
+    padding:8px; outline:none; z-index:100; overflow:auto;
+    box-sizing:border-box; white-space:pre-wrap; word-wrap:break-word;
+    line-height:${ov.lineHeight || 1.3};
+  `;
+  div.innerText = ov.text || '';
+  document.body.appendChild(div);
+  div.focus();
+
+  // Select all text
+  const range = document.createRange();
+  range.selectNodeContents(div);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  function finishEdit() {
+    const newText = div.innerText;
+    if (newText !== ov.text) {
+      pushUndo();
+      overlays[idx].text = newText;
+      renderOverlays();
+      renderOverlayList();
+      markDirty();
+      // Update props textarea if visible
+      const propText = document.getElementById('prop-text');
+      if (propText) propText.value = newText;
+    }
+    div.remove();
+  }
+
+  div.addEventListener('blur', finishEdit);
+  div.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      div.removeEventListener('blur', finishEdit);
+      div.remove();
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      // Allow Shift+Enter for newlines, plain Enter to confirm
+    }
+    e.stopPropagation(); // Prevent keyboard shortcuts while editing
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// OCR CLICK -> check if clicking on an OCR region
+// ══════════════════════════════════════════════════════════════════════════
+canvas.addEventListener('click', (e) => {
+  if (ocrRegions.length === 0 || currentTool !== 'select') return;
+  const nx = normX(e.clientX), ny = normY(e.clientY);
+  // Check if we clicked on an OCR region (and NOT on an existing overlay)
+  if (hitTest(nx, ny) >= 0) return;
+  for (const r of ocrRegions) {
+    if (nx >= r.x && nx <= r.x + r.w && ny >= r.y && ny <= r.y + r.h) {
+      createCoverFromOCR(r);
+      break;
+    }
+  }
+});
+
+async function createCoverFromOCR(region) {
+  pushUndo();
+  // Sample both background color AND text color from the region
+  const body = {
+    x: Math.round(region.x * 1000) / 1000,
+    y: Math.round(region.y * 1000) / 1000,
+    w: Math.round(region.w * 1000) / 1000,
+    h: Math.round(region.h * 1000) / 1000
+  };
+  let bgColor = '#ffffff';
+  let textColor = '#000000';
+  let fontWeight = 'bold';
+  try {
+    const resp = await fetch(`/api/sample-color/${currentSlide}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (data.color) bgColor = data.color;
+    if (data.textColor) textColor = data.textColor;
+    if (data.fontWeight) fontWeight = data.fontWeight;
+  } catch (e) {}
+
+  const isBold = (fontWeight === 'bold' || fontWeight === 'extrabold' || fontWeight === 'semibold');
+
+  // Padding so cover fully hides the original text
+  const pad = 0.003;
+  const rx = Math.max(0, region.x - pad);
+  const ry = Math.max(0, region.y - pad);
+  const rw = region.w + pad * 2;
+  const rh = region.h + pad * 2;
+
+  // Estimate font size from region height
+  const pixelH = region.h * 1200;
+  const fontSize = Math.max(10, Math.min(72, Math.round(pixelH * 0.7 / (2134 / 933))));
+
+  // Create cover rect with exact sampled bg color
+  overlays.push({ type: 'rect', x: rx, y: ry, w: rw, h: rh, fillColor: bgColor, opacity: 1 });
+  // Create text overlay matching detected weight
+  overlays.push({ type: 'text', x: rx, y: ry, w: rw, h: rh, text: region.text || '', fontFamily: 'Arial', fontSize, color: textColor, bold: isBold, italic: false, underline: false, align: 'left', bgColor: 'transparent', opacity: 1, letterSpacing: 0, lineHeight: 1.1, textTransform: 'none', shadow: false, shadowColor: '#000000', shadowBlur: 4, outline: false, outlineColor: '#000000', outlineWidth: 1, autoFit: true, listStyle: 'none' });
+  selectOverlay(overlays.length - 1);
+  setTool('select');
+  switchTab('props');
+  renderOverlayList();
+  renderOverlays();
+  markDirty();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// COVER & TYPE TOOL
+// ══════════════════════════════════════════════════════════════════════════
+async function doCoverTool(x, y, w, h) {
+  pushUndo();
+  const body = { x, y, w, h };
+  let bgColor = '#333333';
+  let textColor = '#ffffff';
+  let fontWeight = 'normal';
+  try {
+    const resp = await fetch(`/api/sample-color/${currentSlide}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (data.color) bgColor = data.color;
+    if (data.textColor) textColor = data.textColor;
+    if (data.fontWeight) fontWeight = data.fontWeight;
+  } catch (e) {}
+
+  const isBold = (fontWeight === 'bold' || fontWeight === 'extrabold' || fontWeight === 'semibold');
+
+  overlays.push({ type: 'rect', x, y, w, h, fillColor: bgColor, opacity: 1 });
+  overlays.push({ type: 'text', x, y, w, h, text: '', fontFamily: 'Arial', fontSize: 18, color: textColor, bold: isBold, italic: false, underline: false, align: 'left', bgColor: 'transparent', opacity: 1, letterSpacing: 0, lineHeight: 1.1, textTransform: 'none', shadow: false, shadowColor: '#000000', shadowBlur: 4, outline: false, outlineColor: '#000000', outlineWidth: 1, autoFit: true, listStyle: 'none' });
+  selectOverlay(overlays.length - 1);
+  setTool('select');
+  switchTab('props');
+  renderOverlayList();
+  renderOverlays();
+  markDirty();
+  document.getElementById('prop-text').focus();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CONTEXT MENU
+// ══════════════════════════════════════════════════════════════════════════
+function onContextMenu(e) {
+  e.preventDefault();
+  const nx = normX(e.clientX), ny = normY(e.clientY);
+  const hit = hitTest(nx, ny);
+  if (hit >= 0) {
+    selectOverlay(hit);
+    ctxTarget = hit;
+  } else {
+    ctxTarget = -1;
+  }
+  const menu = document.getElementById('context-menu');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.classList.add('show');
+}
+
+function hideContextMenu() {
+  document.getElementById('context-menu').classList.remove('show');
+}
+
+function ctxEdit() {
+  hideContextMenu();
+  if (ctxTarget >= 0 && overlays[ctxTarget]?.type === 'text') {
+    selectOverlay(ctxTarget);
+    switchTab('props');
+    document.getElementById('prop-text').focus();
+  }
+}
+
+function bringToFront() {
+  hideContextMenu();
+  if (selectedIdx < 0) return;
+  pushUndo();
+  const ov = overlays.splice(selectedIdx, 1)[0];
+  overlays.push(ov);
+  selectedIdx = overlays.length - 1;
+  renderOverlayList(); renderOverlays(); markDirty();
+}
+
+function sendToBack() {
+  hideContextMenu();
+  if (selectedIdx < 0) return;
+  pushUndo();
+  const ov = overlays.splice(selectedIdx, 1)[0];
+  overlays.unshift(ov);
+  selectedIdx = 0;
+  renderOverlayList(); renderOverlays(); markDirty();
+}
+
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('context-menu').contains(e.target)) {
+    hideContextMenu();
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// OVERLAY FACTORY
+// ══════════════════════════════════════════════════════════════════════════
+function createOverlay(type, x, y, w, h) {
+  if (type === 'text') return { type:'text', x, y, w, h, text:'New Text', fontFamily:'Segoe UI', fontSize:22, color:'#FFFFFF', bold:true, italic:false, underline:false, align:'left', bgColor:'transparent', opacity:1, letterSpacing:0, lineHeight:1.3, textTransform:'none', shadow:false, shadowColor:'#000000', shadowBlur:4, outline:false, outlineColor:'#000000', outlineWidth:1, autoFit:false, listStyle:'none' };
+  if (type === 'rect') return { type:'rect', x, y, w, h, fillColor:'#2563EB', opacity:0.7 };
+  return { type, x, y, w, h };
+}
+
+function addOverlay(type) {
+  pushUndo();
+  const ov = createOverlay(type, 0.05, 0.05, 0.4, 0.12);
+  overlays.push(ov);
+  selectOverlay(overlays.length - 1);
+  renderOverlayList();
+  renderOverlays();
+  switchTab('props');
+  markDirty();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// IMAGE OVERLAY
+// ══════════════════════════════════════════════════════════════════════════
+function addImageOverlay() {
+  document.getElementById('image-upload-input').click();
+}
+
+function replaceImageOverlay() {
+  if (selectedIdx < 0 || overlays[selectedIdx]?.type !== 'image') return;
+  document.getElementById('image-upload-input').click();
+}
+
+async function handleImageUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const resp = await fetch('/api/upload-image', { method: 'POST', body: form });
+    const data = await resp.json();
+    if (data.src) {
+      // If replacing existing image overlay
+      if (selectedIdx >= 0 && overlays[selectedIdx]?.type === 'image') {
+        pushUndo();
+        overlays[selectedIdx].src = data.src;
+        delete imageCache[selectedIdx];
+        preloadSingleImage(selectedIdx);
+      } else {
+        pushUndo();
+        // Calculate aspect-correct size
+        const aspect = data.w / data.h;
+        const ovW = 0.3;
+        const ovH = ovW / aspect;
+        overlays.push({ type: 'image', x: 0.05, y: 0.05, w: ovW, h: ovH, src: data.src, opacity: 1 });
+        preloadSingleImage(overlays.length - 1);
+        selectOverlay(overlays.length - 1);
+      }
+      renderOverlayList();
+      renderOverlays();
+      markDirty();
+    }
+  } catch (e) {
+    showToast('Image upload failed: ' + e.message, 'error');
+  }
+  input.value = '';
+}
+
+function preloadOverlayImages() {
+  overlays.forEach((ov, i) => {
+    if (ov.type === 'image' && ov.src) preloadSingleImage(i);
+  });
+}
+
+function preloadSingleImage(idx) {
+  const ov = overlays[idx];
+  if (!ov || ov.type !== 'image' || !ov.src) return;
+  const img = new Image();
+  img.onload = () => { imageCache[idx] = img; renderOverlays(); };
+  img.src = ov.src;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SELECTION
+// ══════════════════════════════════════════════════════════════════════════
+function selectOverlay(idx) {
+  selectedIdx = idx;
+  document.querySelectorAll('.ov-item').forEach((el,i) => el.classList.toggle('selected', i===idx));
+  showPropsForm(overlays[idx]);
+  renderOverlays();
+}
+
+function deselectOverlay() {
+  selectedIdx = -1;
+  document.querySelectorAll('.ov-item').forEach(el => el.classList.remove('selected'));
+  hidePropsForm();
+  renderOverlays();
+}
+
+function deleteSelected() {
+  hideContextMenu();
+  if (selectedIdx < 0) return;
+  pushUndo();
+  overlays.splice(selectedIdx, 1);
+  selectedIdx = -1;
+  renderOverlayList(); renderOverlays(); hidePropsForm(); markDirty();
+}
+
+function duplicateSelected() {
+  hideContextMenu();
+  if (selectedIdx < 0) return;
+  pushUndo();
+  const clone = JSON.parse(JSON.stringify(overlays[selectedIdx]));
+  clone.x += 0.02; clone.y += 0.02;
+  overlays.push(clone);
+  if (clone.type === 'image') preloadSingleImage(overlays.length - 1);
+  selectOverlay(overlays.length - 1);
+  renderOverlayList(); renderOverlays(); markDirty();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// RENDERING
+// ══════════════════════════════════════════════════════════════════════════
+function renderOverlays() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw grid if enabled
+  if (gridEnabled) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    for (let i = 1; i < 10; i++) {
+      const xp = (i / 10) * canvas.width;
+      const yp = (i / 10) * canvas.height;
+      ctx.beginPath(); ctx.moveTo(xp, 0); ctx.lineTo(xp, canvas.height); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, yp); ctx.lineTo(canvas.width, yp); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Draw OCR regions
+  if (ocrRegions.length > 0) {
+    ctx.save();
+    ctx.strokeStyle = '#60a5fa';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ocrRegions.forEach(r => {
+      ctx.strokeRect(r.x * canvas.width, r.y * canvas.height, r.w * canvas.width, r.h * canvas.height);
+    });
+    ctx.restore();
+  }
+
+  overlays.forEach((ov, i) => {
+    const x = ov.x * canvas.width, y = ov.y * canvas.height;
+    const w = ov.w * canvas.width, h = ov.h * canvas.height;
+    const opacity = ov.opacity ?? 1;
+    ctx.globalAlpha = opacity;
+
+    if (ov.type === 'text') {
+      if (ov.bgColor && ov.bgColor !== 'transparent') {
+        ctx.fillStyle = ov.bgColor;
+        ctx.fillRect(x, y, w, h);
+      }
+      ctx.globalAlpha = opacity;
+      let fs = Math.max(8, Math.round((ov.fontSize || 18) * (canvas.width / 933)));
+      const weight = ov.bold ? 'bold' : 'normal';
+      const style  = ov.italic ? 'italic' : 'normal';
+      const ff = ov.fontFamily || 'Segoe UI';
+      const lh = ov.lineHeight || 1.3;
+      const ls = ov.letterSpacing || 0;
+      const scaleRatio = canvas.width / 933;
+
+      // Apply textTransform
+      let displayText = ov.text || '';
+      const tt = ov.textTransform || 'none';
+      if (tt === 'uppercase') displayText = displayText.toUpperCase();
+      else if (tt === 'lowercase') displayText = displayText.toLowerCase();
+      else if (tt === 'capitalize') displayText = displayText.replace(/\b\w/g, c => c.toUpperCase());
+
+      // Apply listStyle
+      const listStyle = ov.listStyle || 'none';
+      if (listStyle !== 'none') {
+        const rawLines = displayText.split('\n');
+        displayText = rawLines.map((ln, idx) => {
+          if (listStyle === 'bullet') return '\u2022 ' + ln;
+          if (listStyle === 'number') return (idx + 1) + '. ' + ln;
+          return ln;
+        }).join('\n');
+      }
+
+      // AutoFit: reduce font size until text fits box height
+      if (ov.autoFit) {
+        let testFs = fs;
+        while (testFs > 8) {
+          ctx.font = `${style} ${weight} ${testFs}px '${ff}', 'Segoe UI', Arial, sans-serif`;
+          const testLines = _countWrapLines(ctx, displayText, w - 16, ls * scaleRatio);
+          const totalH = testLines * (testFs * lh) + testFs + 16;
+          if (totalH <= h) break;
+          testFs--;
+        }
+        fs = testFs;
+      }
+
+      ctx.font = `${style} ${weight} ${fs}px '${ff}', 'Segoe UI', Arial, sans-serif`;
+      ctx.fillStyle = ov.color || '#fff';
+      ctx.textAlign = ov.align || 'left';
+      const tx = ov.align === 'center' ? x + w/2 : ov.align === 'right' ? x + w - 8 : x + 8;
+
+      // Shadow
+      if (ov.shadow) {
+        ctx.shadowColor = ov.shadowColor || '#000000';
+        ctx.shadowBlur = ov.shadowBlur || 4;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+      }
+
+      // Outline: strokeText before fillText
+      if (ov.outline) {
+        ctx.lineWidth = ov.outlineWidth || 1;
+        ctx.strokeStyle = ov.outlineColor || '#000';
+        // We need to stroke each line — done inside wrapText-like loop
+        const savedFill = ctx.fillStyle;
+        const outlineLines = _getWrapLines(ctx, displayText, w - 16, ls * scaleRatio);
+        let oy = y + fs + 8;
+        for (const ln of outlineLines) {
+          if (ls !== 0) {
+            _strokeTextWithSpacing(ctx, ln, tx, oy, ls * scaleRatio);
+          } else {
+            ctx.strokeText(ln, tx, oy);
+          }
+          oy += fs * lh;
+        }
+        ctx.fillStyle = savedFill;
+      }
+
+      const drawnLines = wrapText(ctx, displayText, tx, y + fs + 8, w - 16, fs * lh, { letterSpacing: ls, scale: scaleRatio });
+
+      // Reset shadow
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+
+      // Underline
+      if (ov.underline && drawnLines) {
+        ctx.save();
+        ctx.strokeStyle = ov.color || '#fff';
+        ctx.lineWidth = Math.max(1, fs / 14);
+        for (const dl of drawnLines) {
+          const ulY = dl.y + fs * 0.15;
+          let ulX = dl.x;
+          let ulW = dl.width;
+          if (ctx.textAlign === 'center') { ulX = dl.x - ulW / 2; }
+          else if (ctx.textAlign === 'right') { ulX = dl.x - ulW; }
+          ctx.beginPath();
+          ctx.moveTo(ulX, ulY);
+          ctx.lineTo(ulX + ulW, ulY);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    } else if (ov.type === 'rect') {
+      ctx.fillStyle = ov.fillColor || '#2563EB';
+      ctx.fillRect(x, y, w, h);
+    } else if (ov.type === 'image') {
+      const cached = imageCache[i];
+      if (cached) {
+        ctx.drawImage(cached, x, y, w, h);
+      } else {
+        // Draw placeholder
+        ctx.fillStyle = 'rgba(100,100,100,0.3)';
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '12px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText('Loading...', x + w/2, y + h/2);
+      }
+    }
+
+    ctx.globalAlpha = 1;
+
+    // Selection handles (8 handles: 4 corners + 4 edges)
+    if (i === selectedIdx) {
+      ctx.strokeStyle = '#60a5fa';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.strokeRect(x, y, w, h);
+      const handles = [
+        [x, y], [x + w/2, y], [x + w, y],
+        [x + w, y + h/2],
+        [x + w, y + h], [x + w/2, y + h], [x, y + h],
+        [x, y + h/2]
+      ];
+      handles.forEach(([hx, hy]) => {
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(hx, hy, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+    }
+  });
+}
+
+function wrapText(ctx, text, x, y, maxW, lineH, opts) {
+  opts = opts || {};
+  const letterSpacing = opts.letterSpacing || 0;
+  const scale = opts.scale || 1;
+  const lsOffset = letterSpacing * scale;
+
+  const words = (text || '').split(' ');
+  let line = '';
+  const lines = [];
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const tw = _measureWithSpacing(ctx, testLine, lsOffset);
+    if (tw > maxW && n > 0) {
+      lines.push(line);
+      line = words[n] + ' ';
+    } else { line = testLine; }
+  }
+  if (line) lines.push(line);
+
+  const drawnLines = [];
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    const tw = _measureWithSpacing(ctx, ln, lsOffset);
+    if (lsOffset !== 0) {
+      _drawTextWithSpacing(ctx, ln, x, y, lsOffset);
+    } else {
+      ctx.fillText(ln, x, y);
+    }
+    drawnLines.push({ text: ln, x, y, width: tw });
+    y += lineH;
+  }
+  return drawnLines;
+}
+
+function _measureWithSpacing(ctx, text, lsOffset) {
+  if (!lsOffset) return ctx.measureText(text).width;
+  let w = 0;
+  for (let i = 0; i < text.length; i++) {
+    w += ctx.measureText(text[i]).width + lsOffset;
+  }
+  return w;
+}
+
+function _drawTextWithSpacing(ctx, text, x, y, lsOffset) {
+  let cx = x;
+  const align = ctx.textAlign;
+  if (align === 'center' || align === 'right') {
+    const tw = _measureWithSpacing(ctx, text, lsOffset);
+    if (align === 'center') cx = x - tw / 2;
+    else cx = x - tw;
+    ctx.save(); ctx.textAlign = 'left';
+    for (let i = 0; i < text.length; i++) {
+      ctx.fillText(text[i], cx, y);
+      cx += ctx.measureText(text[i]).width + lsOffset;
+    }
+    ctx.restore();
+  } else {
+    for (let i = 0; i < text.length; i++) {
+      ctx.fillText(text[i], cx, y);
+      cx += ctx.measureText(text[i]).width + lsOffset;
+    }
+  }
+}
+
+function _getWrapLines(ctx, text, maxW, lsOffset) {
+  lsOffset = lsOffset || 0;
+  const words = (text || '').split(' ');
+  let line = '';
+  const lines = [];
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const tw = _measureWithSpacing(ctx, testLine, lsOffset);
+    if (tw > maxW && n > 0) {
+      lines.push(line);
+      line = words[n] + ' ';
+    } else { line = testLine; }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function _countWrapLines(ctx, text, maxW, lsOffset) {
+  return _getWrapLines(ctx, text, maxW, lsOffset).length;
+}
+
+function _strokeTextWithSpacing(ctx, text, x, y, lsOffset) {
+  let cx = x;
+  const align = ctx.textAlign;
+  if (align === 'center' || align === 'right') {
+    const tw = _measureWithSpacing(ctx, text, lsOffset);
+    if (align === 'center') cx = x - tw / 2;
+    else cx = x - tw;
+    ctx.save(); ctx.textAlign = 'left';
+    for (let i = 0; i < text.length; i++) {
+      ctx.strokeText(text[i], cx, y);
+      cx += ctx.measureText(text[i]).width + lsOffset;
+    }
+    ctx.restore();
+  } else {
+    for (let i = 0; i < text.length; i++) {
+      ctx.strokeText(text[i], cx, y);
+      cx += ctx.measureText(text[i]).width + lsOffset;
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// OVERLAY LIST (SIDEBAR)
+// ══════════════════════════════════════════════════════════════════════════
+function renderOverlayList() {
+  const list = document.getElementById('ov-list');
+  if (overlays.length === 0) {
+    list.innerHTML = `<div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:32px;height:32px;opacity:0.3"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      <div>No overlays yet</div>
+      <div style="font-size:11px;margin-top:4px">Use the toolbar to add text or shapes</div>
+    </div>`;
+    document.getElementById(`thumb-${currentSlide}`)?.classList.remove('has-edits');
+    return;
+  }
+  document.getElementById(`thumb-${currentSlide}`)?.classList.add('has-edits');
+  list.innerHTML = overlays.map((ov, i) => {
+    const isText = ov.type === 'text';
+    const isImage = ov.type === 'image';
+    const dotColor = isText ? (ov.color || '#fff') : isImage ? '#a78bfa' : (ov.fillColor || '#2563EB');
+    const typeName = isText ? 'Text' : isImage ? 'Image' : ov.type === 'rect' ? 'Rectangle' : ov.type;
+    const preview = isText ? (ov.text || '--') : isImage ? 'Image overlay' : `Fill: ${ov.fillColor || '#2563EB'}`;
+    return `
+    <div class="ov-item ${i === selectedIdx ? 'selected' : ''}" onclick="selectOverlay(${i})">
+      <div class="ov-header">
+        <div class="ov-dot" style="background:${dotColor}"></div>
+        <div class="ov-type">${typeName}</div>
+      </div>
+      <div class="ov-preview">${preview}</div>
+      <div class="ov-actions">
+        <button class="btn btn-glass btn-sm" onclick="event.stopPropagation();selectOverlay(${i});switchTab('props')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removeOverlay(${i})">Remove</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function removeOverlay(i) {
+  pushUndo();
+  overlays.splice(i, 1);
+  if (selectedIdx === i) { selectedIdx = -1; hidePropsForm(); }
+  else if (selectedIdx > i) selectedIdx--;
+  renderOverlayList(); renderOverlays(); markDirty();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PROPS FORM
+// ══════════════════════════════════════════════════════════════════════════
+function showPropsForm(ov) {
+  document.getElementById('props-empty').style.display = 'none';
+  document.getElementById('props-form').style.display  = 'block';
+  const isText = ov.type === 'text';
+  const isImage = ov.type === 'image';
+  document.getElementById('field-text').style.display    = isText ? '' : 'none';
+  document.getElementById('field-bgcolor').style.display = isText ? '' : 'none';
+  document.getElementById('field-fillcolor').style.display = (!isText && !isImage) ? '' : 'none';
+  document.getElementById('field-imgsrc').style.display = isImage ? '' : 'none';
+
+  if (isText) {
+    document.getElementById('prop-text').value    = ov.text || '';
+    document.getElementById('prop-fontfamily').value = ov.fontFamily || 'Segoe UI';
+    document.getElementById('prop-fontsize').value = ov.fontSize || 18;
+    document.getElementById('prop-color').value   = ov.color || '#FFFFFF';
+    document.getElementById('prop-align').value   = ov.align || 'left';
+    document.getElementById('prop-bold').checked  = ov.bold || false;
+    document.getElementById('prop-italic').checked = ov.italic || false;
+    const noBg = !ov.bgColor || ov.bgColor === 'transparent';
+    document.getElementById('prop-nobg').checked  = noBg;
+    document.getElementById('prop-bgcolor').value = noBg ? '#1a1d27' : ov.bgColor;
+    document.getElementById('prop-underline').checked = ov.underline || false;
+    document.getElementById('prop-letterspacing').value = ov.letterSpacing || 0;
+    document.getElementById('ls-val').textContent = (ov.letterSpacing || 0) + 'px';
+    document.getElementById('prop-lineheight').value = ov.lineHeight || 1.3;
+    document.getElementById('lh-val').textContent = (ov.lineHeight || 1.3) + 'x';
+    document.getElementById('prop-texttransform').value = ov.textTransform || 'none';
+    document.getElementById('prop-liststyle').value = ov.listStyle || 'none';
+    document.getElementById('prop-shadow').checked = ov.shadow || false;
+    document.getElementById('prop-shadowcolor').value = ov.shadowColor || '#000000';
+    document.getElementById('prop-outline').checked = ov.outline || false;
+    document.getElementById('prop-outlinecolor').value = ov.outlineColor || '#000000';
+    document.getElementById('prop-autofit').checked = ov.autoFit || false;
+  } else if (!isImage) {
+    document.getElementById('prop-fillcolor').value = ov.fillColor || '#2563EB';
+  }
+  document.getElementById('prop-opacity').value = ov.opacity ?? 1;
+  document.getElementById('opacity-val').textContent = Math.round((ov.opacity ?? 1) * 100) + '%';
+  document.getElementById('prop-x').value = (ov.x * 100).toFixed(1);
+  document.getElementById('prop-y').value = (ov.y * 100).toFixed(1);
+  document.getElementById('prop-w').value = (ov.w * 100).toFixed(1);
+  document.getElementById('prop-h').value = (ov.h * 100).toFixed(1);
+}
+
+function hidePropsForm() {
+  document.getElementById('props-empty').style.display = '';
+  document.getElementById('props-form').style.display  = 'none';
+}
+
+function updateSelectedProp(key, val) {
+  if (selectedIdx < 0) return;
+  pushUndo();
+  overlays[selectedIdx][key] = val;
+  renderOverlays(); renderOverlayList(); markDirty();
+}
+
+function updateSelectedPos() {
+  if (selectedIdx < 0) return;
+  pushUndo();
+  overlays[selectedIdx].x = parseFloat(document.getElementById('prop-x').value) / 100 || 0;
+  overlays[selectedIdx].y = parseFloat(document.getElementById('prop-y').value) / 100 || 0;
+  overlays[selectedIdx].w = parseFloat(document.getElementById('prop-w').value) / 100 || 0.1;
+  overlays[selectedIdx].h = parseFloat(document.getElementById('prop-h').value) / 100 || 0.05;
+  renderOverlays(); markDirty();
+}
+
+function toggleNoBg(checked) {
+  if (selectedIdx < 0) return;
+  pushUndo();
+  overlays[selectedIdx].bgColor = checked ? 'transparent' : '#1a1d27';
+  renderOverlays(); markDirty();
+}
+
+function updatePropsForm() {
+  if (selectedIdx < 0) return;
+  const ov = overlays[selectedIdx];
+  document.getElementById('prop-x').value = (ov.x * 100).toFixed(1);
+  document.getElementById('prop-y').value = (ov.y * 100).toFixed(1);
+  document.getElementById('prop-w').value = (ov.w * 100).toFixed(1);
+  document.getElementById('prop-h').value = (ov.h * 100).toFixed(1);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════════════════════════════════
+function switchTab(name) {
+  ['overlays','props','notes'].forEach(t => {
+    document.getElementById(`panel-${t}`).style.display = t === name ? '' : 'none';
+    document.getElementById(`tab-${t}`)?.classList.toggle('active', t === name);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PERSISTENCE + AUTO-SAVE INDICATOR
+// ══════════════════════════════════════════════════════════════════════════
+function markDirty() {
+  dirty = true;
+  updateSaveIndicator();
+}
+
+function updateSaveIndicator() {
+  const dot = document.getElementById('save-dot');
+  const check = document.getElementById('save-check');
+  if (dirty) {
+    dot.className = 'save-dot dirty';
+    check.className = 'save-check';
+  } else {
+    dot.className = 'save-dot';
+  }
+}
+
+function flashSaveCheck() {
+  const dot = document.getElementById('save-dot');
+  const check = document.getElementById('save-check');
+  dot.className = 'save-dot saved';
+  check.className = 'save-check show';
+  setTimeout(() => {
+    dot.className = 'save-dot';
+    check.className = 'save-check';
+  }, 1500);
+}
+
+async function saveCurrentSlide(silent = false) {
+  const payload = {
+    overlays,
+    notes: document.getElementById('notes-text').value
+  };
+  await fetch(`/api/slide/${currentSlide}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  dirty = false;
+  updateSaveIndicator();
+  flashSaveCheck();
+  if (!silent) showToast('Slide saved!', 'success');
+}
+
+async function bakeOverlays() {
+  if (overlays.length === 0) {
+    showToast('No overlays to apply', 'info');
+    return;
+  }
+  // Save current state first
+  await saveCurrentSlide(true);
+  showLoading('Applying changes to slide...');
+  try {
+    const resp = await fetch(`/api/slide/${currentSlide}/bake`, { method: 'POST' });
+    const data = await resp.json();
+    hideLoading();
+    if (data.ok) {
+      // Reload the slide image (cache bust) and clear overlays
+      overlays = [];
+      selectedIdx = -1;
+      const pad = String(currentSlide).padStart(2, '0');
+      slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
+      // Also update thumbnail
+      const thumb = document.querySelector(`#thumb-${currentSlide} img`);
+      if (thumb) thumb.src = slideImg.src;
+      renderOverlayList();
+      renderOverlays();
+      hidePropsForm();
+      dirty = false;
+      showToast('Changes applied to slide!', 'success');
+    } else {
+      showToast(data.error || 'Failed to apply', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function exportPPTX() {
+  await saveCurrentSlide(true);
+  showLoading('Exporting PPTX...');
+  const resp = await fetch('/api/export', { method: 'POST' });
+  hideLoading();
+  if (resp.ok) {
+    const blob = await resp.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'Cyber_Resilience_Edited.pptx';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('PPTX downloaded!', 'success');
+  } else {
+    showToast('Export failed', 'error');
+  }
+}
+
+async function exportPDF() {
+  await saveCurrentSlide(true);
+  showLoading('Exporting PDF...');
+  try {
+    const resp = await fetch('/api/export-pdf', { method: 'POST' });
+    hideLoading();
+    if (resp.ok) {
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'Cyber_Resilience_Edited.pdf';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('PDF downloaded!', 'success');
+    } else {
+      showToast('PDF export failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('PDF export error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// OCR TEXT DETECTION
+// ══════════════════════════════════════════════════════════════════════════
+async function detectText() {
+  showLoading('Detecting text...');
+  try {
+    const resp = await fetch(`/api/ocr/${currentSlide}`, { method: 'POST' });
+    const data = await resp.json();
+    hideLoading();
+    if (data.error) {
+      showToast(data.error, 'error');
+      return;
+    }
+    if (data.regions && data.regions.length > 0) {
+      ocrRegions = data.regions.map(r => ({
+        text: r.text,
+        x: r.x, y: r.y, w: r.w, h: r.h,
+        conf: r.conf
+      }));
+      document.getElementById('btn-clear-ocr').style.display = '';
+      renderOverlays();
+      showToast(`Detected ${data.regions.length} text regions`, 'info');
+    } else {
+      showToast('No text detected', 'info');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('OCR failed: ' + e.message, 'error');
+  }
+}
+
+function clearOCR() {
+  ocrRegions = [];
+  document.getElementById('btn-clear-ocr').style.display = 'none';
+  renderOverlays();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════════════════════════════════════
+function showToast(msg, type = 'success', duration = 2500) {
+  const t = document.getElementById('toast');
+  const icons = {
+    success: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>',
+    error: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    info: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+  };
+  t.innerHTML = (icons[type] || icons.info) + `<span>${msg}</span>`;
+  t.className = `show ${type}`;
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.className = '', duration);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// LOADING OVERLAY
+// ══════════════════════════════════════════════════════════════════════════
+function showLoading(msg = 'Processing...') {
+  document.getElementById('loading-text').textContent = msg;
+  document.getElementById('loading-overlay').classList.add('active');
+}
+function hideLoading() {
+  document.getElementById('loading-overlay').classList.remove('active');
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// KEYBOARD
+// ══════════════════════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  // Shortcuts modal
+  if (e.key === 'Escape') {
+    if (presMode) { exitPresentation(); return; }
+    document.getElementById('shortcuts-modal').classList.remove('show');
+    hideContextMenu();
+    return;
+  }
+  if (document.getElementById('shortcuts-modal').classList.contains('show')) {
+    if (e.key === 'Escape') document.getElementById('shortcuts-modal').classList.remove('show');
+    return;
+  }
+  if (presMode) {
+    if (e.key === 'ArrowRight' || e.key === ' ') { presNavigate(1); return; }
+    if (e.key === 'ArrowLeft') { presNavigate(-1); return; }
+    return;
+  }
+
+  const inInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+
+  // Ctrl combos work even in inputs
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveCurrentSlide(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !inInput) { e.preventDefault(); copyOverlay(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !inInput) { e.preventDefault(); pasteOverlay(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'd' && !inInput) { e.preventDefault(); duplicateSelected(); return; }
+
+  if (inInput) return;
+
+  if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
+  if (e.key === 'ArrowRight') gotoSlide(currentSlide + 1);
+  if (e.key === 'ArrowLeft')  gotoSlide(currentSlide - 1);
+  if (e.key === 't' || e.key === 'T') setTool('text');
+  if (e.key === 'r' || e.key === 'R') setTool('rect');
+  if (e.key === 's' || e.key === 'S') setTool('select');
+  if (e.key === 'c' && !e.ctrlKey && !e.metaKey) setTool('cover');
+  if (e.key === 'g' || e.key === 'G') toggleGrid();
+  if (e.key === '?') document.getElementById('shortcuts-modal').classList.add('show');
+  if (e.key === 'F5') { e.preventDefault(); enterPresentation(); }
+});
+
+document.getElementById('shortcuts-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('show');
+});
+
+window.addEventListener('resize', () => { resizeCanvas(); renderOverlays(); });
+
+// ══════════════════════════════════════════════════════════════════════════
+// COPY / PASTE
+// ══════════════════════════════════════════════════════════════════════════
+function copyOverlay() {
+  if (selectedIdx < 0) return;
+  clipboardOverlay = JSON.parse(JSON.stringify(overlays[selectedIdx]));
+  showToast('Overlay copied', 'info', 1200);
+}
+
+function pasteOverlay() {
+  if (!clipboardOverlay) return;
+  pushUndo();
+  const clone = JSON.parse(JSON.stringify(clipboardOverlay));
+  clone.x += 0.02;
+  clone.y += 0.02;
+  overlays.push(clone);
+  if (clone.type === 'image') preloadSingleImage(overlays.length - 1);
+  selectOverlay(overlays.length - 1);
+  renderOverlayList(); renderOverlays(); markDirty();
+  showToast('Overlay pasted', 'info', 1200);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PRESENTATION MODE
+// ══════════════════════════════════════════════════════════════════════════
+function enterPresentation() {
+  presMode = true;
+  presSlide = currentSlide;
+  const el = document.getElementById('presentation-mode');
+  el.classList.add('active');
+  renderPresSlide();
+  if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+}
+
+function exitPresentation() {
+  presMode = false;
+  document.getElementById('presentation-mode').classList.remove('active');
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+
+function presNavigate(dir) {
+  presSlide += dir;
+  if (presSlide < 1) presSlide = 1;
+  if (presSlide > NUM_SLIDES) { exitPresentation(); return; }
+  renderPresSlide();
+}
+
+async function renderPresSlide() {
+  const pad = String(presSlide).padStart(2, '0');
+  const presCanvas = document.getElementById('pres-canvas');
+  const pCtx = presCanvas.getContext('2d');
+
+  const img = new Image();
+  img.onload = async () => {
+    presCanvas.width = img.naturalWidth;
+    presCanvas.height = img.naturalHeight;
+    pCtx.drawImage(img, 0, 0);
+
+    // Load overlays for this slide
+    try {
+      const resp = await fetch(`/api/slide/${presSlide}`);
+      const data = await resp.json();
+      const ovs = data.overlays || [];
+      // Render overlays baked on top
+      for (const ov of ovs) {
+        const x = ov.x * presCanvas.width, y = ov.y * presCanvas.height;
+        const w = ov.w * presCanvas.width, h = ov.h * presCanvas.height;
+        pCtx.globalAlpha = ov.opacity ?? 1;
+        if (ov.type === 'text') {
+          if (ov.bgColor && ov.bgColor !== 'transparent') {
+            pCtx.fillStyle = ov.bgColor;
+            pCtx.fillRect(x, y, w, h);
+          }
+          const fs = Math.max(8, Math.round((ov.fontSize || 18) * (presCanvas.width / 933)));
+          const weight = ov.bold ? 'bold' : 'normal';
+          const style = ov.italic ? 'italic' : 'normal';
+          pCtx.font = `${style} ${weight} ${fs}px 'Inter', sans-serif`;
+          pCtx.fillStyle = ov.color || '#fff';
+          pCtx.textAlign = ov.align || 'left';
+          const tx = ov.align === 'center' ? x + w/2 : ov.align === 'right' ? x + w - 8 : x + 8;
+          wrapText(pCtx, ov.text || '', tx, y + fs + 8, w - 16, fs * 1.3);
+        } else if (ov.type === 'rect') {
+          pCtx.fillStyle = ov.fillColor || '#2563EB';
+          pCtx.fillRect(x, y, w, h);
+        } else if (ov.type === 'image' && ov.src) {
+          await new Promise(resolve => {
+            const oImg = new Image();
+            oImg.onload = () => { pCtx.drawImage(oImg, x, y, w, h); resolve(); };
+            oImg.onerror = resolve;
+            oImg.src = ov.src;
+          });
+        }
+        pCtx.globalAlpha = 1;
+      }
+    } catch (e) {}
+  };
+  img.src = `/static/slides/slide-${pad}.jpg`;
+}
+
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && presMode) exitPresentation();
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// DRAG & DROP UPLOAD
+// ══════════════════════════════════════════════════════════════════════════
+const dropOverlay = document.getElementById('drop-overlay');
+let dragCounter = 0;
+
+document.addEventListener('dragenter', e => {
+  if (e.target.closest && e.target.closest('.thumb-strip')) return;
+  e.preventDefault();
+  dragCounter++;
+  if (dragCounter === 1) dropOverlay.classList.add('active');
+});
+document.addEventListener('dragleave', e => {
+  if (e.target.closest && e.target.closest('.thumb-strip')) return;
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter === 0) dropOverlay.classList.remove('active');
+});
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  if (e.target.closest && e.target.closest('.thumb-strip')) return;
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.remove('active');
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.toLowerCase().endsWith('.pptx')) {
+    doUpload(file);
+  } else {
+    showToast('Please drop a .pptx file', 'error');
+  }
+});
+
+async function uploadPPTX(input) {
+  const file = input.files[0];
+  if (!file) return;
+  doUpload(file);
+  input.value = '';
+}
+
+async function doUpload(file) {
+  showLoading('Uploading & processing slides...');
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const resp = await fetch('/api/upload', { method: 'POST', body: form });
+    const data = await resp.json();
+    hideLoading();
+    if (data.ok) {
+      showToast('Upload complete! Reloading...', 'success');
+      setTimeout(() => location.reload(), 800);
+    } else {
+      showToast(data.error || 'Upload failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Upload failed: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// REMOVE NOTEBOOKLM LOGO
+// ══════════════════════════════════════════════════════════════════════════
+async function removeLogos() {
+  showLoading('Removing NotebookLM logos...');
+  try {
+    const resp = await fetch('/api/remove-logo', { method: 'POST' });
+    const data = await resp.json();
+    hideLoading();
+    if (data.ok) {
+      showToast('Logos removed! Reloading...', 'success');
+      setTimeout(() => location.reload(), 800);
+    } else {
+      showToast('Failed to remove logos', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// THUMBNAIL DRAG REORDER
+// ══════════════════════════════════════════════════════════════════════════
+function initThumbDrag() {
+  const strip = document.getElementById('thumb-strip');
+  let dragSrcIdx = null;
+
+  strip.addEventListener('dragstart', e => {
+    const item = e.target.closest('.thumb-item');
+    if (!item) return;
+    dragSrcIdx = parseInt(item.dataset.index);
+    item.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', dragSrcIdx);
+  });
+
+  strip.addEventListener('dragend', e => {
+    const item = e.target.closest('.thumb-item');
+    if (item) item.classList.remove('dragging');
+    strip.querySelectorAll('.thumb-item').forEach(t => {
+      t.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+  });
+
+  strip.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const item = e.target.closest('.thumb-item');
+    if (!item) return;
+    strip.querySelectorAll('.thumb-item').forEach(t => {
+      t.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+    const rect = item.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    if (e.clientY < mid) {
+      item.classList.add('drag-over-top');
+    } else {
+      item.classList.add('drag-over-bottom');
+    }
+  });
+
+  strip.addEventListener('drop', async e => {
+    e.preventDefault();
+    e.stopPropagation();
+    strip.querySelectorAll('.thumb-item').forEach(t => {
+      t.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging');
+    });
+    const item = e.target.closest('.thumb-item');
+    if (!item || dragSrcIdx === null) return;
+    const dropIdx = parseInt(item.dataset.index);
+    if (dragSrcIdx === dropIdx) return;
+
+    // Build new order array
+    const order = [];
+    for (let i = 1; i <= NUM_SLIDES; i++) order.push(i);
+    // Remove source
+    const srcPos = order.indexOf(dragSrcIdx);
+    order.splice(srcPos, 1);
+    // Insert at drop position
+    let dropPos = order.indexOf(dropIdx);
+    const rect = item.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    if (e.clientY >= mid) dropPos++;
+    order.splice(dropPos, 0, dragSrcIdx);
+
+    showLoading('Reordering slides...');
+    try {
+      const resp = await fetch('/api/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order })
+      });
+      hideLoading();
+      showToast('Slides reordered! Reloading...', 'success');
+      setTimeout(() => location.reload(), 800);
+    } catch (err) {
+      hideLoading();
+      showToast('Reorder failed: ' + err.message, 'error');
+    }
+  });
+}
+</script>
+</body>
+</html>
