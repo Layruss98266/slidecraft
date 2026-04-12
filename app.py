@@ -4,7 +4,7 @@ Edits NotebookLM image-based slides with text/shape overlays,
 then exports a new editable PPTX.
 """
 
-import os, json, base64, subprocess, shutil
+import os, sys, json, base64, subprocess, shutil
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, send_file
 from pptx import Presentation
@@ -44,6 +44,10 @@ _data_lock = threading.Lock()
 
 ALLOWED_VIDEO_EXTS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv'}
 ALLOWED_IMAGE_FORMATS = {'PNG', 'JPEG', 'GIF', 'WEBP', 'BMP'}
+
+IS_WINDOWS = sys.platform == "win32"
+IS_MACOS = sys.platform == "darwin"
+IS_LINUX = sys.platform.startswith("linux")
 
 def _get_slide_files():
     return sorted(SLIDES_DIR.glob("slide-*.jpg"))
@@ -122,10 +126,23 @@ def process_uploaded_pptx(pptx_path):
 
 
 def _find_libreoffice():
-    """Return the LibreOffice binary path or None."""
-    for candidate in ("libreoffice", "soffice",
-                      r"C:\Program Files\LibreOffice\program\soffice.exe",
-                      r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"):
+    """Return the LibreOffice binary path or None (cross-platform)."""
+    candidates = ["libreoffice", "soffice"]
+    if IS_WINDOWS:
+        candidates.extend([
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+            str(Path.home() / "AppData" / "Local" / "Programs" / "LibreOffice" / "program" / "soffice.exe"),
+        ])
+    elif IS_MACOS:
+        candidates.append("/Applications/LibreOffice.app/Contents/MacOS/soffice")
+    else:  # Linux
+        candidates.extend([
+            "/usr/bin/soffice",
+            "/snap/bin/libreoffice",
+            "/usr/bin/libreoffice",
+        ])
+    for candidate in candidates:
         if shutil.which(candidate) or Path(candidate).exists():
             return candidate
     return None
@@ -340,103 +357,198 @@ def preview_slide(num):
     return jsonify({"preview": f"data:image/jpeg;base64,{b64}"})
 
 
-# ── Font helpers for baking ─────────────────────────────────────────────────
+# ── Cross-platform font helpers ────────────────────────────────────────────
 
-# Font family → {(bold, italic): path} mapping
-_FONTS = {
-    "Segoe UI": {
-        (False,False): r"C:\Windows\Fonts\segoeui.ttf",
-        (True,False):  r"C:\Windows\Fonts\segoeuib.ttf",
-        (False,True):  r"C:\Windows\Fonts\segoeuii.ttf",
-        (True,True):   r"C:\Windows\Fonts\segoeuiz.ttf",
-    },
+def _get_font_dirs():
+    """Return a list of directories where system fonts are installed."""
+    dirs = []
+    if IS_WINDOWS:
+        win_fonts = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+        dirs.append(win_fonts)
+        # User-installed fonts on Windows 10+
+        local_fonts = Path.home() / "AppData" / "Local" / "Microsoft" / "Windows" / "Fonts"
+        if local_fonts.exists():
+            dirs.append(local_fonts)
+    elif IS_MACOS:
+        dirs.extend([
+            Path("/Library/Fonts"),
+            Path("/System/Library/Fonts"),
+            Path("/System/Library/Fonts/Supplemental"),
+            Path.home() / "Library" / "Fonts",
+        ])
+    else:  # Linux and others
+        dirs.extend([
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+            Path.home() / ".fonts",
+            Path.home() / ".local" / "share" / "fonts",
+        ])
+    return [d for d in dirs if d.exists()]
+
+
+# Font family → {(bold, italic): [possible filenames]} mapping
+# Filenames only — resolved against font dirs at runtime
+_FONT_FILENAMES = {
     "Arial": {
-        (False,False): r"C:\Windows\Fonts\arial.ttf",
-        (True,False):  r"C:\Windows\Fonts\arialbd.ttf",
-        (False,True):  r"C:\Windows\Fonts\ariali.ttf",
-        (True,True):   r"C:\Windows\Fonts\arialbi.ttf",
+        (False, False): ["arial.ttf", "Arial.ttf"],
+        (True, False):  ["arialbd.ttf", "Arial Bold.ttf", "Arial-BoldMT.ttf"],
+        (False, True):  ["ariali.ttf", "Arial Italic.ttf"],
+        (True, True):   ["arialbi.ttf", "Arial Bold Italic.ttf"],
+    },
+    "Segoe UI": {
+        (False, False): ["segoeui.ttf", "SegoeUI.ttf"],
+        (True, False):  ["segoeuib.ttf", "SegoeUI-Bold.ttf"],
+        (False, True):  ["segoeuii.ttf", "SegoeUI-Italic.ttf"],
+        (True, True):   ["segoeuiz.ttf", "SegoeUI-BoldItalic.ttf"],
     },
     "Calibri": {
-        (False,False): r"C:\Windows\Fonts\calibri.ttf",
-        (True,False):  r"C:\Windows\Fonts\calibrib.ttf",
-        (False,True):  r"C:\Windows\Fonts\calibrii.ttf",
-        (True,True):   r"C:\Windows\Fonts\calibriz.ttf",
-    },
-    "Cambria": {
-        (False,False): r"C:\Windows\Fonts\cambria.ttc",
-        (True,False):  r"C:\Windows\Fonts\cambriab.ttf",
-        (False,True):  r"C:\Windows\Fonts\cambriai.ttf",
-        (True,True):   r"C:\Windows\Fonts\cambriaz.ttf",
+        (False, False): ["calibri.ttf", "Calibri.ttf"],
+        (True, False):  ["calibrib.ttf", "Calibri-Bold.ttf"],
+        (False, True):  ["calibrii.ttf", "Calibri-Italic.ttf"],
+        (True, True):   ["calibriz.ttf", "Calibri-BoldItalic.ttf"],
     },
     "Verdana": {
-        (False,False): r"C:\Windows\Fonts\verdana.ttf",
-        (True,False):  r"C:\Windows\Fonts\verdanab.ttf",
-        (False,True):  r"C:\Windows\Fonts\verdanai.ttf",
-        (True,True):   r"C:\Windows\Fonts\verdanaz.ttf",
+        (False, False): ["verdana.ttf", "Verdana.ttf"],
+        (True, False):  ["verdanab.ttf", "Verdana Bold.ttf", "Verdana-Bold.ttf"],
+        (False, True):  ["verdanai.ttf", "Verdana Italic.ttf"],
+        (True, True):   ["verdanaz.ttf", "Verdana Bold Italic.ttf"],
     },
     "Georgia": {
-        (False,False): r"C:\Windows\Fonts\georgia.ttf",
-        (True,False):  r"C:\Windows\Fonts\georgiab.ttf",
-        (False,True):  r"C:\Windows\Fonts\georgiai.ttf",
-        (True,True):   r"C:\Windows\Fonts\georgiaz.ttf",
+        (False, False): ["georgia.ttf", "Georgia.ttf"],
+        (True, False):  ["georgiab.ttf", "Georgia Bold.ttf", "Georgia-Bold.ttf"],
+        (False, True):  ["georgiai.ttf", "Georgia Italic.ttf"],
+        (True, True):   ["georgiaz.ttf", "Georgia Bold Italic.ttf"],
     },
     "Tahoma": {
-        (False,False): r"C:\Windows\Fonts\tahoma.ttf",
-        (True,False):  r"C:\Windows\Fonts\tahomabd.ttf",
-        (False,True):  r"C:\Windows\Fonts\tahoma.ttf",
-        (True,True):   r"C:\Windows\Fonts\tahomabd.ttf",
+        (False, False): ["tahoma.ttf", "Tahoma.ttf"],
+        (True, False):  ["tahomabd.ttf", "Tahoma Bold.ttf", "Tahoma-Bold.ttf"],
+        (False, True):  ["tahoma.ttf", "Tahoma.ttf"],
+        (True, True):   ["tahomabd.ttf", "Tahoma Bold.ttf"],
     },
     "Trebuchet MS": {
-        (False,False): r"C:\Windows\Fonts\trebuc.ttf",
-        (True,False):  r"C:\Windows\Fonts\trebucbd.ttf",
-        (False,True):  r"C:\Windows\Fonts\trebucit.ttf",
-        (True,True):   r"C:\Windows\Fonts\trebucbi.ttf",
+        (False, False): ["trebuc.ttf", "Trebuchet MS.ttf", "TrebuchetMS.ttf"],
+        (True, False):  ["trebucbd.ttf", "Trebuchet MS Bold.ttf"],
+        (False, True):  ["trebucit.ttf", "Trebuchet MS Italic.ttf"],
+        (True, True):   ["trebucbi.ttf", "Trebuchet MS Bold Italic.ttf"],
+    },
+    "Cambria": {
+        (False, False): ["cambria.ttc", "Cambria.ttf"],
+        (True, False):  ["cambriab.ttf", "Cambria-Bold.ttf"],
+        (False, True):  ["cambriai.ttf", "Cambria-Italic.ttf"],
+        (True, True):   ["cambriaz.ttf", "Cambria-BoldItalic.ttf"],
     },
     "Candara": {
-        (False,False): r"C:\Windows\Fonts\Candara.ttf",
-        (True,False):  r"C:\Windows\Fonts\Candarab.ttf",
-        (False,True):  r"C:\Windows\Fonts\Candarai.ttf",
-        (True,True):   r"C:\Windows\Fonts\Candaraz.ttf",
+        (False, False): ["Candara.ttf", "candara.ttf"],
+        (True, False):  ["Candarab.ttf", "Candara-Bold.ttf"],
+        (False, True):  ["Candarai.ttf", "Candara-Italic.ttf"],
+        (True, True):   ["Candaraz.ttf", "Candara-BoldItalic.ttf"],
     },
     "Corbel": {
-        (False,False): r"C:\Windows\Fonts\corbel.ttf",
-        (True,False):  r"C:\Windows\Fonts\corbelb.ttf",
-        (False,True):  r"C:\Windows\Fonts\corbeli.ttf",
-        (True,True):   r"C:\Windows\Fonts\corbelz.ttf",
+        (False, False): ["corbel.ttf", "Corbel.ttf"],
+        (True, False):  ["corbelb.ttf", "Corbel-Bold.ttf"],
+        (False, True):  ["corbeli.ttf", "Corbel-Italic.ttf"],
+        (True, True):   ["corbelz.ttf", "Corbel-BoldItalic.ttf"],
     },
     "Impact": {
-        (False,False): r"C:\Windows\Fonts\impact.ttf",
-        (True,False):  r"C:\Windows\Fonts\impact.ttf",
-        (False,True):  r"C:\Windows\Fonts\impact.ttf",
-        (True,True):   r"C:\Windows\Fonts\impact.ttf",
+        (False, False): ["impact.ttf", "Impact.ttf"],
+        (True, False):  ["impact.ttf", "Impact.ttf"],
+        (False, True):  ["impact.ttf", "Impact.ttf"],
+        (True, True):   ["impact.ttf", "Impact.ttf"],
     },
     "Consolas": {
-        (False,False): r"C:\Windows\Fonts\consola.ttf",
-        (True,False):  r"C:\Windows\Fonts\consolab.ttf",
-        (False,True):  r"C:\Windows\Fonts\consolai.ttf",
-        (True,True):   r"C:\Windows\Fonts\consolaz.ttf",
+        (False, False): ["consola.ttf", "Consolas.ttf"],
+        (True, False):  ["consolab.ttf", "Consolas-Bold.ttf"],
+        (False, True):  ["consolai.ttf", "Consolas-Italic.ttf"],
+        (True, True):   ["consolaz.ttf", "Consolas-BoldItalic.ttf"],
+    },
+    # Cross-platform fallback fonts (Linux/macOS)
+    "DejaVu Sans": {
+        (False, False): ["DejaVuSans.ttf"],
+        (True, False):  ["DejaVuSans-Bold.ttf"],
+        (False, True):  ["DejaVuSans-Oblique.ttf"],
+        (True, True):   ["DejaVuSans-BoldOblique.ttf"],
+    },
+    "Liberation Sans": {
+        (False, False): ["LiberationSans-Regular.ttf"],
+        (True, False):  ["LiberationSans-Bold.ttf"],
+        (False, True):  ["LiberationSans-Italic.ttf"],
+        (True, True):   ["LiberationSans-BoldItalic.ttf"],
+    },
+    "Noto Sans": {
+        (False, False): ["NotoSans-Regular.ttf", "NotoSans[wdth,wght].ttf"],
+        (True, False):  ["NotoSans-Bold.ttf"],
+        (False, True):  ["NotoSans-Italic.ttf"],
+        (True, True):   ["NotoSans-BoldItalic.ttf"],
     },
 }
 
-def _get_bake_font(size, bold=False, italic=False, family="Segoe UI"):
-    """Get a TrueType font matching family + style, falling back gracefully."""
-    variants = _FONTS.get(family, _FONTS.get("Segoe UI", {}))
-    key = (bool(bold), bool(italic))
-    fp = variants.get(key, variants.get((False, False), ""))
-    if fp and Path(fp).exists():
+# Cache: resolved font paths so we don't scan dirs repeatedly
+_font_path_cache = {}
+
+
+def _find_font_file(family, bold=False, italic=False):
+    """Find a font file on disk for the given family + style. Returns path or None."""
+    key = (family, bold, italic)
+    if key in _font_path_cache:
+        return _font_path_cache[key]
+
+    style_key = (bool(bold), bool(italic))
+    filenames = _FONT_FILENAMES.get(family, {}).get(style_key, [])
+    # Also try regular variant as fallback
+    if not filenames:
+        filenames = _FONT_FILENAMES.get(family, {}).get((False, False), [])
+
+    font_dirs = _get_font_dirs()
+    for font_dir in font_dirs:
+        for fname in filenames:
+            # Check direct path
+            fp = font_dir / fname
+            if fp.exists():
+                _font_path_cache[key] = str(fp)
+                return str(fp)
+            # Search subdirectories (Linux organizes fonts in subdirs)
+            for sub in font_dir.rglob(fname):
+                _font_path_cache[key] = str(sub)
+                return str(sub)
+
+    _font_path_cache[key] = None
+    return None
+
+
+# Fallback chain: try these families in order if requested family not found
+_FALLBACK_FAMILIES = ["Arial", "Liberation Sans", "DejaVu Sans", "Noto Sans"]
+
+
+def _get_bake_font(size, bold=False, italic=False, family="Arial"):
+    """Get a TrueType font matching family + style, with cross-platform fallback."""
+    # Try requested family first
+    fp = _find_font_file(family, bold, italic)
+    if fp:
         try:
             return ImageFont.truetype(fp, size)
         except (OSError, IOError):
             pass
-    # Fallback: try Segoe UI, then Arial
-    for fb in ["Segoe UI", "Arial"]:
-        fb_variants = _FONTS.get(fb, {})
-        fb_path = fb_variants.get(key, fb_variants.get((False, False), ""))
-        if fb_path and Path(fb_path).exists():
+
+    # Try fallback families
+    for fb_family in _FALLBACK_FAMILIES:
+        if fb_family == family:
+            continue
+        fp = _find_font_file(fb_family, bold, italic)
+        if fp:
             try:
-                return ImageFont.truetype(fb_path, size)
+                return ImageFont.truetype(fp, size)
             except (OSError, IOError):
                 continue
+
+    # Try any regular font from fallbacks (ignore bold/italic)
+    for fb_family in _FALLBACK_FAMILIES:
+        fp = _find_font_file(fb_family, False, False)
+        if fp:
+            try:
+                return ImageFont.truetype(fp, size)
+            except (OSError, IOError):
+                continue
+
     return ImageFont.load_default()
 
 
@@ -520,7 +632,7 @@ def bake_overlays(num):
             font_size = max(8, int(raw_fs * w / 933))
             is_bold = ov.get("bold", False)
             is_italic = ov.get("italic", False)
-            font_family = ov.get("fontFamily", "Segoe UI")
+            font_family = ov.get("fontFamily", "Arial")
             font = _get_bake_font(font_size, is_bold, is_italic, font_family)
 
             text = ov.get("text", "")
