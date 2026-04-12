@@ -173,6 +173,13 @@
     display: flex; gap: 3px; align-items: center;
     background: var(--surface); border: 1px solid var(--glass-border);
     border-radius: 10px; padding: 3px;
+    position: relative;
+  }
+  .action-group .group-label {
+    position: absolute; top: -14px; left: 8px;
+    font-size: 9px; font-weight: 600; letter-spacing: 0.5px;
+    text-transform: uppercase; color: var(--text3); opacity: 0.5;
+    pointer-events: none;
   }
   .action-group .btn-action {
     display: flex; align-items: center; gap: 6px;
@@ -189,12 +196,89 @@
   .action-group .btn-action.accent { color: #fff; background: linear-gradient(135deg, var(--accent), #6366f1); }
   .action-group .btn-action.accent:hover { filter: brightness(1.15); }
   .action-group .btn-action.accent svg { opacity: 1; }
+  .action-group .btn-action.bulk-btn {
+    background: linear-gradient(135deg, rgba(52,211,153,0.12), rgba(59,130,246,0.08));
+    border: 1px solid rgba(52,211,153,0.2);
+  }
+  .action-group .btn-action.bulk-btn:hover {
+    background: linear-gradient(135deg, rgba(52,211,153,0.2), rgba(59,130,246,0.15));
+    border-color: var(--green); color: var(--green);
+  }
+  .action-group .btn-action.bulk-btn svg { opacity: 0.8; }
   .action-group .group-sep { width: 1px; height: 18px; background: var(--glass-border); margin: 0 1px; }
+
+  /* Export dropdown */
+  .export-dropdown { position: relative; }
+  .export-dropdown-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 8px; border: none;
+    background: linear-gradient(135deg, var(--accent), #6366f1);
+    color: #fff; font-size: 12px; font-weight: 600; font-family: inherit;
+    cursor: pointer; transition: all var(--transition); white-space: nowrap;
+  }
+  .export-dropdown-btn:hover { filter: brightness(1.15); }
+  .export-dropdown-btn:active { transform: scale(0.97); }
+  .export-dropdown-btn svg { width: 14px; height: 14px; }
+  .export-dropdown-btn .caret { width: 10px; height: 10px; opacity: 0.7; }
+  .export-menu {
+    display: none; position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--glass); backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border); border-radius: 10px;
+    padding: 4px; min-width: 160px; z-index: 200;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .export-menu.open { display: block; }
+  .export-menu-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 6px; border: none; width: 100%;
+    background: transparent; color: var(--text2); font-size: 12px;
+    font-weight: 500; font-family: inherit; cursor: pointer;
+    transition: all var(--transition); text-align: left;
+  }
+  .export-menu-item:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+  .export-menu-item svg { width: 14px; height: 14px; opacity: 0.6; flex-shrink: 0; }
+  .export-menu-item:hover svg { opacity: 1; }
+  .export-menu-item .fmt-tag {
+    margin-left: auto; font-size: 10px; font-weight: 600; padding: 2px 6px;
+    border-radius: 4px; background: rgba(59,130,246,0.1); color: var(--accent2);
+  }
+
+  /* Empty state for canvas */
+  .canvas-empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; min-height: 400px; color: var(--text3); text-align: center;
+    padding: 40px;
+  }
+  .canvas-empty-state .empty-icon {
+    width: 64px; height: 64px; border-radius: 16px;
+    background: linear-gradient(135deg, rgba(59,130,246,0.1), rgba(129,140,248,0.06));
+    border: 1px solid rgba(59,130,246,0.15);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 16px;
+  }
+  .canvas-empty-state .empty-icon svg { width: 28px; height: 28px; color: var(--accent2); opacity: 0.6; }
+  .canvas-empty-state h3 { font-size: 16px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+  .canvas-empty-state p { font-size: 13px; color: var(--text3); margin-bottom: 16px; line-height: 1.5; }
+  .canvas-empty-state .empty-actions { display: flex; gap: 10px; }
+  .canvas-empty-state .empty-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 18px; border-radius: 8px; border: 1px solid var(--glass-border);
+    background: var(--surface); color: var(--text2); font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all var(--transition); font-family: inherit;
+  }
+  .canvas-empty-state .empty-btn:hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-soft); }
+  .canvas-empty-state .empty-btn.primary {
+    border-color: var(--accent); background: linear-gradient(135deg, var(--accent), #6366f1); color: #fff;
+  }
+  .canvas-empty-state .empty-btn.primary:hover { filter: brightness(1.15); }
+  .canvas-empty-state .empty-btn svg { width: 14px; height: 14px; }
 
   /* Label hidden on small widths */
   .action-group .btn-action .act-label { }
   @media (max-width: 1200px) {
     .action-group .btn-action .act-label { display: none; }
+    .action-group .group-label { display: none; }
+    .export-dropdown-btn .act-label { display: none; }
   }
 
   /* ── Main Layout ───────────────────────────────────────────────────── */
@@ -936,16 +1020,19 @@
     </div>
   </div>
 
-  <!-- Right: Action buttons -->
+  <!-- Right: Action buttons — 3 groups: FILE, EDIT, EXPORT -->
   <div class="header-actions">
+    <!-- GROUP: FILE -->
     <div class="action-group">
+      <span class="group-label">File</span>
       <label class="btn-action" style="cursor:pointer" title="Upload PPTX file">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
         <span class="act-label">Upload</span>
         <input type="file" accept=".pptx" id="upload-input" onchange="uploadPPTX(this)" style="display:none">
       </label>
-      <label class="btn-action" style="cursor:pointer" title="Bulk upload up to 10 PPTX files — remove logos and download ZIP">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M9 10l3-3 3 3"/></svg>
+      <div class="group-sep"></div>
+      <label class="btn-action bulk-btn" style="cursor:pointer" title="Bulk: upload up to 10 PPTX files, remove logos, download ZIP">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v2"/><path d="M20 16v2a2 2 0 01-2 2h-2"/><path d="M4 8V6a2 2 0 012-2h2"/><path d="M8 20H6a2 2 0 01-2-2v-2"/><path d="M9 12l3-3 3 3"/><path d="M12 9v6"/></svg>
         <span class="act-label">Bulk</span>
         <input type="file" accept=".pptx" multiple id="bulk-upload-input" onchange="bulkRemoveLogo(this)" style="display:none">
       </label>
@@ -956,7 +1043,9 @@
       </button>
     </div>
 
+    <!-- GROUP: EDIT -->
     <div class="action-group">
+      <span class="group-label">Edit</span>
       <button class="btn-action" onclick="bakeOverlays()" title="Apply edits permanently into slide image">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><polyline points="16,8 12,16 8,8"/></svg>
         <span class="act-label">Apply</span>
@@ -970,26 +1059,40 @@
           <span class="save-check" id="save-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg></span>
         </span>
       </button>
-      <div class="group-sep"></div>
-      <button class="btn-action accent" onclick="exportPPTX()" title="Export as PPTX">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <span class="act-label">PPTX</span>
-      </button>
-      <div class="group-sep"></div>
-      <button class="btn-action" onclick="exportPDF()" title="Export as PDF">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        <span class="act-label">PDF</span>
-      </button>
-      <div class="group-sep"></div>
-      <button class="btn-action" onclick="exportPNGZip()" title="Export all slides as PNG ZIP">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
-        <span class="act-label">PNG</span>
-      </button>
-      <div class="group-sep"></div>
-      <button class="btn-action" onclick="exportGIF()" title="Export as animated GIF">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18"/><polygon points="10,8 16,12 10,16"/></svg>
-        <span class="act-label">GIF</span>
-      </button>
+    </div>
+
+    <!-- GROUP: EXPORT (dropdown) -->
+    <div class="action-group">
+      <span class="group-label">Export</span>
+      <div class="export-dropdown">
+        <button class="export-dropdown-btn" onclick="toggleExportMenu(event)" title="Export slides">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span class="act-label">Export</span>
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+        </button>
+        <div class="export-menu" id="export-menu">
+          <button class="export-menu-item" onclick="exportPPTX(); closeExportMenu()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+            PowerPoint
+            <span class="fmt-tag">PPTX</span>
+          </button>
+          <button class="export-menu-item" onclick="exportPDF(); closeExportMenu()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            PDF Document
+            <span class="fmt-tag">PDF</span>
+          </button>
+          <button class="export-menu-item" onclick="exportPNGZip(); closeExportMenu()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
+            Images
+            <span class="fmt-tag">PNG</span>
+          </button>
+          <button class="export-menu-item" onclick="exportGIF(); closeExportMenu()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18"/><polygon points="10,8 16,12 10,16"/></svg>
+            Animation
+            <span class="fmt-tag">GIF</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="action-group">
@@ -1154,8 +1257,29 @@
     </div>
 
     <div class="canvas-viewport" id="viewport">
-      <div class="slide-container" id="slide-container" style="width:933px">
-        <img id="slide-img" src="/static/slides/slide-01.jpg" alt="Slide" style="width:100%">
+      {% if num_slides == 0 %}
+      <div class="canvas-empty-state" id="canvas-empty">
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
+        </div>
+        <h3>No slides loaded</h3>
+        <p>Upload a PowerPoint file to start editing,<br>or use Bulk to process multiple files at once.</p>
+        <div class="empty-actions">
+          <label class="empty-btn primary" style="cursor:pointer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
+            Upload PPTX
+            <input type="file" accept=".pptx" onchange="uploadPPTX(this)" style="display:none">
+          </label>
+          <label class="empty-btn" style="cursor:pointer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v2"/><path d="M20 16v2a2 2 0 01-2 2h-2"/><path d="M4 8V6a2 2 0 012-2h2"/><path d="M8 20H6a2 2 0 01-2-2v-2"/><path d="M9 12l3-3 3 3"/><path d="M12 9v6"/></svg>
+            Bulk Process
+            <input type="file" accept=".pptx" multiple onchange="bulkRemoveLogo(this)" style="display:none">
+          </label>
+        </div>
+      </div>
+      {% endif %}
+      <div class="slide-container" id="slide-container" style="width:933px;{% if num_slides == 0 %}display:none{% endif %}">
+        <img id="slide-img" src="{% if num_slides > 0 %}/static/slides/slide-01.jpg{% endif %}" alt="Slide" style="width:100%">
         <canvas id="overlay-canvas" class="overlay-canvas"></canvas>
       </div>
     </div>
@@ -3372,6 +3496,22 @@ async function doUpload(file) {
     showToast('Upload failed: ' + e.message, 'error');
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXPORT DROPDOWN
+// ══════════════════════════════════════════════════════════════════════════
+function toggleExportMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('export-menu');
+  menu.classList.toggle('open');
+}
+function closeExportMenu() {
+  document.getElementById('export-menu').classList.remove('open');
+}
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('export-menu');
+  if (menu && !e.target.closest('.export-dropdown')) menu.classList.remove('open');
+});
 
 // ══════════════════════════════════════════════════════════════════════════
 // REMOVE NOTEBOOKLM LOGO
