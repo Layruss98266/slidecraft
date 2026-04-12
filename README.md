@@ -329,6 +329,11 @@ set PYTHONIOENCODING=utf-8 && python app.py
 PYTHONIOENCODING=utf-8 python3 app.py
 ```
 
+> **Dev mode:** To enable Flask debug mode (auto-reload on code changes), set `FLASK_DEBUG=true`:
+> ```bash
+> FLASK_DEBUG=true PYTHONIOENCODING=utf-8 python app.py
+> ```
+
 You should see:
 ```
  * Running on http://0.0.0.0:5050
@@ -460,7 +465,7 @@ Press `?` in the editor to see the full cheatsheet.
 
 ```
 slidecraft/
-├── app.py                  # Flask backend — 44 API routes
+├── app.py                  # Flask backend — 49 API routes
 ├── requirements.txt        # Python dependencies
 ├── LICENSE                 # MIT license
 ├── .gitignore              # Git ignore rules
@@ -489,6 +494,7 @@ slidecraft/
 | `GET` | `/api/slide/<num>` | Get overlays + notes for a slide |
 | `POST` | `/api/slide/<num>` | Save overlays + notes |
 | `POST` | `/api/slide/<num>/bake` | Burn overlays into slide image |
+| `POST` | `/api/slide/<num>/preview` | Render composite preview with overlays |
 | `POST` | `/api/slide/<num>/filter` | Apply image filter |
 | `POST` | `/api/slide/<num>/crop` | Crop slide image |
 | `POST` | `/api/slide/<num>/rotate` | Rotate slide image |
