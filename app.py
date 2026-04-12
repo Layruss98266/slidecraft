@@ -1492,6 +1492,141 @@ def batch_process():
     return jsonify({"ok": True, "results": results})
 
 
+@app.route("/api/batch/remove-logo", methods=["POST"])
+def batch_remove_logo():
+    """Upload up to 10 PPTX files, remove logos from all slides in each,
+    and return a ZIP containing the cleaned PPTX files."""
+    import zipfile, uuid, tempfile
+
+    files = request.files.getlist("files")
+    if not files or not any(f.filename for f in files):
+        return jsonify({"error": "No files uploaded"}), 400
+
+    pptx_files = [f for f in files if f.filename and f.filename.lower().endswith(".pptx")]
+    if not pptx_files:
+        return jsonify({"error": "No .pptx files found"}), 400
+    if len(pptx_files) > 10:
+        return jsonify({"error": "Maximum 10 files allowed"}), 400
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    results = []
+    cleaned_paths = []
+
+    try:
+        for f in pptx_files:
+            fname = secure_filename(f.filename)
+            if not fname:
+                continue
+            input_path = tmp_dir / fname
+            f.save(str(input_path))
+
+            try:
+                # Extract slides to a per-file temp dir
+                file_slides_dir = tmp_dir / f"slides_{fname}"
+                file_slides_dir.mkdir(exist_ok=True)
+
+                # Convert PPTX to images
+                try:
+                    _batch_convert_pptx(input_path, file_slides_dir)
+                except (RuntimeError, FileNotFoundError, subprocess.SubprocessError, OSError):
+                    _batch_convert_pptx_pillow(input_path, file_slides_dir)
+
+                # Remove logos from all slide images
+                slide_images = sorted(file_slides_dir.glob("slide-*.jpg"))
+                remove_logos_batch(slide_images)
+
+                # Rebuild PPTX with cleaned images
+                output_path = tmp_dir / f"clean_{fname}"
+                _rebuild_pptx_from_images(slide_images, output_path)
+                cleaned_paths.append((output_path, f"clean_{fname}"))
+                results.append({"file": fname, "status": "ok", "slides": len(slide_images)})
+
+            except Exception as e:
+                results.append({"file": fname, "status": "error", "error": str(e)})
+
+        if not cleaned_paths:
+            return jsonify({"error": "No files were processed successfully", "results": results}), 500
+
+        # Package all cleaned files into a ZIP
+        zip_name = f"bulk_cleaned_{uuid.uuid4().hex[:8]}.zip"
+        zip_path = EXPORT_DIR / zip_name
+        with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
+            for fpath, arcname in cleaned_paths:
+                zf.write(str(fpath), arcname)
+
+        return send_file(str(zip_path), as_attachment=True,
+                         download_name="SlideCraft_Bulk_Cleaned.zip")
+
+    finally:
+        shutil.rmtree(str(tmp_dir), ignore_errors=True)
+
+
+def _batch_convert_pptx(pptx_path, output_dir):
+    """Convert PPTX to slide images using LibreOffice (for batch — doesn't touch SLIDES_DIR)."""
+    import tempfile
+    lo_cmd = _find_libreoffice()
+    if not lo_cmd:
+        raise RuntimeError("LibreOffice not found")
+    tmp_dir = Path(tempfile.mkdtemp())
+    try:
+        subprocess.run(
+            [lo_cmd, "--headless", "--convert-to", "pdf",
+             "--outdir", str(tmp_dir), str(pptx_path)],
+            check=True, timeout=120,
+        )
+        pdf_files = list(tmp_dir.glob("*.pdf"))
+        if not pdf_files:
+            raise RuntimeError("PDF conversion produced no output")
+        try:
+            from pdf2image import convert_from_path
+            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=200)):
+                img.convert("RGB").save(
+                    str(output_dir / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
+        except ImportError:
+            import fitz
+            doc = fitz.open(str(pdf_files[0]))
+            mat = fitz.Matrix(2.0, 2.0)
+            for i, page in enumerate(doc):
+                pix = page.get_pixmap(matrix=mat)
+                (output_dir / f"slide-{i+1:02d}.jpg").write_bytes(pix.tobytes("jpeg"))
+            doc.close()
+    finally:
+        shutil.rmtree(str(tmp_dir), ignore_errors=True)
+
+
+def _batch_convert_pptx_pillow(pptx_path, output_dir):
+    """Fallback: extract embedded pictures from PPTX shapes (for batch)."""
+    prs = Presentation(str(pptx_path))
+    sw_emu, sh_emu = prs.slide_width, prs.slide_height
+    for i, slide in enumerate(prs.slides):
+        img = Image.new("RGB", (SLIDE_W_PX, SLIDE_H_PX), (255, 255, 255))
+        for shape in slide.shapes:
+            if shape.shape_type == 13:
+                shape_img = Image.open(io.BytesIO(shape.image.blob))
+                left = int(shape.left / sw_emu * SLIDE_W_PX) if sw_emu else 0
+                top  = int(shape.top  / sh_emu * SLIDE_H_PX) if sh_emu else 0
+                sw   = int(shape.width  / sw_emu * SLIDE_W_PX) if sw_emu else SLIDE_W_PX
+                sh   = int(shape.height / sh_emu * SLIDE_H_PX) if sh_emu else SLIDE_H_PX
+                img.paste(shape_img.resize((sw, sh), Image.BILINEAR), (left, top))
+        img.save(str(output_dir / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
+
+
+def _rebuild_pptx_from_images(slide_images, output_path):
+    """Rebuild a PPTX with slide images as full-slide backgrounds."""
+    prs = Presentation()
+    prs.slide_width = Inches(13.33)
+    prs.slide_height = Inches(7.5)
+    blank_layout = prs.slide_layouts[6]
+    for sf in slide_images:
+        slide = prs.slides.add_slide(blank_layout)
+        pic = slide.shapes.add_picture(
+            str(sf), left=0, top=0,
+            width=prs.slide_width, height=prs.slide_height)
+        slide.shapes._spTree.remove(pic._element)
+        slide.shapes._spTree.insert(2, pic._element)
+    prs.save(str(output_path))
+
+
 # ── Templates ───────────────────────────────────────────────────────────────
 
 TEMPLATES_DIR = BASE_DIR / "templates_saved"
