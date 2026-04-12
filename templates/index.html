@@ -3517,6 +3517,9 @@ document.addEventListener('click', (e) => {
   const menu = document.getElementById('export-menu');
   if (menu && !e.target.closest('.export-dropdown')) menu.classList.remove('open');
 });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeExportMenu();
+});
 
 // ══════════════════════════════════════════════════════════════════════════
 // REMOVE NOTEBOOKLM LOGO

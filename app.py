@@ -4,7 +4,7 @@ Edits NotebookLM image-based slides with text/shape overlays,
 then exports a new editable PPTX.
 """
 
-import os, sys, json, base64, subprocess, shutil
+import os, sys, json, base64, subprocess, shutil, uuid, datetime
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, send_file
 from pptx import Presentation
@@ -298,7 +298,6 @@ def export_pptx():
             tf = slide.notes_slide.notes_text_frame
             tf.text = notes
 
-    import uuid
     export_name = f"SlideCraft_Export_{uuid.uuid4().hex[:8]}.pptx"
     out_path = EXPORT_DIR / export_name
     prs.save(str(out_path))
@@ -975,7 +974,6 @@ def export_pdf():
     first_img = Image.open(slide_files[0]).convert("RGB")
     rest = (Image.open(sf).convert("RGB") for sf in slide_files[1:])
 
-    import uuid
     out_path = EXPORT_DIR / f"Slides_Export_{uuid.uuid4().hex[:8]}.pdf"
     first_img.save(str(out_path), save_all=True, append_images=rest, resolution=150)
 
@@ -1049,7 +1047,6 @@ def export_png_zip():
     if not slide_files:
         return jsonify({"error": "No slides"}), 400
 
-    import uuid
     zip_path = EXPORT_DIR / f"slides_export_{uuid.uuid4().hex[:8]}.zip"
     with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
         for sf in slide_files:
@@ -1080,8 +1077,7 @@ def export_gif():
         img = img.resize((800, 450), Image.BILINEAR)
         frames.append(img)
 
-    import uuid as _uuid
-    gif_path = EXPORT_DIR / f"slides_export_{_uuid.uuid4().hex[:8]}.gif"
+    gif_path = EXPORT_DIR / f"slides_export_{uuid.uuid4().hex[:8]}.gif"
     frames[0].save(str(gif_path), save_all=True, append_images=frames[1:],
                    duration=duration_ms, loop=0, optimize=True)
 
@@ -1575,7 +1571,6 @@ def save_template():
         shutil.copy2(str(sf), str(tpl_dir / sf.name))
 
     # Save overlay data
-    import datetime
     meta = {"slide_count": len(slide_files), "data": data,
             "created": datetime.datetime.now().isoformat()}
     (TEMPLATES_DIR / f"{name}.json").write_text(json.dumps(meta, indent=2))
@@ -1635,8 +1630,6 @@ HISTORY_DIR.mkdir(exist_ok=True)
 @app.route("/api/history/save", methods=["POST"])
 def save_version():
     """Save a snapshot of current slide state."""
-    import datetime
-    import uuid
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{uuid.uuid4().hex[:4]}"
     version_dir = HISTORY_DIR / ts
 
@@ -1710,7 +1703,6 @@ def get_comments(num):
 def add_comment(num):
     payload = request.json
     data = _load_comments()
-    import datetime
     comment = {
         "text": payload.get("text", ""),
         "x": payload.get("x", 0.5),
