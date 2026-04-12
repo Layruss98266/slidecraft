@@ -4,16 +4,17 @@ Edits NotebookLM image-based slides with text/shape overlays,
 then exports a new editable PPTX.
 """
 
-import os, json, base64, subprocess, shutil, glob as globmod, tempfile
+import os, json, base64, subprocess, shutil
 from pathlib import Path
-from flask import Flask, render_template, jsonify, request, send_file, redirect, url_for
+from flask import Flask, render_template, jsonify, request, send_file
 from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
+from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from PIL import Image, ImageDraw, ImageFont
 from werkzeug.utils import secure_filename
 import io
+import threading
 
 # OCR — use EasyOCR (no external binary needed, works out of the box)
 HAS_OCR = False
@@ -25,31 +26,52 @@ except ImportError:
     pass
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB upload limit
 
 BASE_DIR   = Path(__file__).parent
 SLIDES_DIR = BASE_DIR / "static" / "slides"
 UPLOAD_DIR = BASE_DIR / "uploads"
 EXPORT_DIR = BASE_DIR / "exports"
 DATA_FILE  = BASE_DIR / "slide_data.json"
+VIDEO_DIR  = BASE_DIR / "videos"
 EXPORT_DIR.mkdir(exist_ok=True)
+VIDEO_DIR.mkdir(exist_ok=True)
 
 SLIDE_W_PX, SLIDE_H_PX = 2134, 1200   # actual JPG pixel dimensions
+
+# Lock for file-based persistence (slide_data.json, comments.json)
+_data_lock = threading.Lock()
+
+ALLOWED_VIDEO_EXTS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv'}
+ALLOWED_IMAGE_FORMATS = {'PNG', 'JPEG', 'GIF', 'WEBP', 'BMP'}
 
 def _get_slide_files():
     return sorted(SLIDES_DIR.glob("slide-*.jpg"))
 
-SLIDE_FILES = _get_slide_files()
-NUM_SLIDES  = len(SLIDE_FILES)
+
+def _parse_hex_color(s, default=(0, 0, 0)):
+    """Parse a hex color string like '#FF00AA' or 'FF00AA'. Returns (r, g, b) tuple."""
+    try:
+        s = s.lstrip("#")
+        if len(s) < 6:
+            return default
+        return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+    except (ValueError, TypeError, AttributeError):
+        return default
+
 
 # ── Persistence ──────────────────────────────────────────────────────────────
 
 def load_data():
-    if DATA_FILE.exists():
-        return json.loads(DATA_FILE.read_text())
-    return {str(i+1): {"overlays": [], "notes": ""} for i in range(NUM_SLIDES)}
+    with _data_lock:
+        if DATA_FILE.exists():
+            return json.loads(DATA_FILE.read_text())
+        num_slides = len(_get_slide_files())
+        return {str(i+1): {"overlays": [], "notes": ""} for i in range(num_slides)}
 
 def save_data(data):
-    DATA_FILE.write_text(json.dumps(data, indent=2))
+    with _data_lock:
+        DATA_FILE.write_text(json.dumps(data, indent=2))
 
 # ── NotebookLM Logo Removal ─────────────────────────────────────────────────
 
@@ -75,13 +97,6 @@ def _erase_logo(img):
     return img
 
 
-def remove_notebooklm_logo(img_path):
-    """Load → erase logo → save a single slide image."""
-    img = Image.open(img_path).convert("RGB")
-    img = _erase_logo(img)
-    img.save(str(img_path), quality=95)
-
-
 def remove_logos_batch(slide_files):
     """Remove the logo from many slides with minimal per-file overhead."""
     for p in slide_files:
@@ -100,14 +115,10 @@ def process_uploaded_pptx(pptx_path):
 
     try:
         _convert_pptx_to_images_libreoffice(pptx_path)
-    except Exception:
+    except (RuntimeError, FileNotFoundError, subprocess.SubprocessError, OSError):
         _convert_pptx_to_images_pillow(pptx_path)
 
     remove_logos_batch(sorted(SLIDES_DIR.glob("slide-*.jpg")))
-
-    global SLIDE_FILES, NUM_SLIDES
-    SLIDE_FILES = _get_slide_files()
-    NUM_SLIDES = len(SLIDE_FILES)
 
 
 def _find_libreoffice():
@@ -177,12 +188,9 @@ def _convert_pptx_to_images_pillow(pptx_path):
 
 @app.route("/")
 def index():
-    # Refresh in case slides were uploaded
-    global SLIDE_FILES, NUM_SLIDES
-    SLIDE_FILES = _get_slide_files()
-    NUM_SLIDES = len(SLIDE_FILES)
-    slides = [{"index": i+1, "file": f"slides/{f.name}"} for i, f in enumerate(SLIDE_FILES)]
-    return render_template("index.html", slides=slides, num_slides=NUM_SLIDES)
+    slide_files = _get_slide_files()
+    slides = [{"index": i+1, "file": f"slides/{f.name}"} for i, f in enumerate(slide_files)]
+    return render_template("index.html", slides=slides, num_slides=len(slide_files))
 
 @app.route("/api/slide/<int:num>")
 def get_slide(num):
@@ -204,10 +212,10 @@ def upload_pptx():
 
     try:
         process_uploaded_pptx(save_path)
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         return jsonify({"error": f"Processing failed: {e}"}), 500
 
-    return jsonify({"ok": True, "num_slides": NUM_SLIDES})
+    return jsonify({"ok": True, "num_slides": len(_get_slide_files())})
 
 
 @app.route("/api/remove-logo", methods=["POST"])
@@ -219,8 +227,18 @@ def remove_logo_from_existing():
 
 @app.route("/api/slide/<int:num>", methods=["POST"])
 def save_slide(num):
-    data = load_data()
+    num_slides = len(_get_slide_files())
+    if num < 1 or num > max(num_slides, 1):
+        return jsonify({"error": "Invalid slide number"}), 400
     payload = request.json
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+    # Validate expected keys
+    if "overlays" in payload and not isinstance(payload["overlays"], list):
+        return jsonify({"error": "overlays must be a list"}), 400
+    if "notes" in payload and not isinstance(payload["notes"], str):
+        return jsonify({"error": "notes must be a string"}), 400
+    data = load_data()
     data[str(num)] = payload
     save_data(data)
     return jsonify({"ok": True})
@@ -261,20 +279,26 @@ def export_pptx():
             tf = slide.notes_slide.notes_text_frame
             tf.text = notes
 
-    out_path = EXPORT_DIR / "Cyber_Resilience_Edited.pptx"
+    import uuid
+    export_name = f"SlideCraft_Export_{uuid.uuid4().hex[:8]}.pptx"
+    out_path = EXPORT_DIR / export_name
     prs.save(str(out_path))
     return send_file(str(out_path), as_attachment=True,
-                     download_name="Cyber_Resilience_Edited.pptx")
+                     download_name="SlideCraft_Export.pptx")
 
 @app.route("/api/slide/<int:num>/preview", methods=["POST"])
 def preview_slide(num):
     """Render composite preview: slide image + overlays baked in."""
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide"}), 400
+
     data   = load_data()
     payload = request.json
     data[str(num)] = payload
     save_data(data)
 
-    slide_file = SLIDE_FILES[num - 1]
+    slide_file = slide_files[num - 1]
     img = Image.open(slide_file).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
@@ -290,24 +314,18 @@ def preview_slide(num):
             if bg and bg != "transparent":
                 overlay_img = Image.new("RGBA", img.size, (0,0,0,0))
                 ov_draw = ImageDraw.Draw(overlay_img)
-                hex_c = bg.lstrip("#")
-                r,g,b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
-                ov_draw.rectangle([x, y, x+w, y+h], fill=(r,g,b,180))
+                cr, cg, cb = _parse_hex_color(bg)
+                ov_draw.rectangle([x, y, x+w, y+h], fill=(cr,cg,cb,180))
                 img = Image.alpha_composite(img, overlay_img)
                 draw = ImageDraw.Draw(img)
 
-            hex_c = ov.get("color","#FFFFFF").lstrip("#")
-            r,g,b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+            r, g, b = _parse_hex_color(ov.get("color", "#FFFFFF"), (255, 255, 255))
             font_size = int(ov.get("fontSize", 18) * 2.5)
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-            except:
-                font = ImageFont.load_default()
+            font = _get_bake_font(font_size, bold=True, family=ov.get("fontFamily", "Arial"))
             draw.text((x+8, y+8), ov.get("text",""), fill=(r,g,b,255), font=font)
 
         elif ov["type"] == "rect":
-            hex_c = ov.get("fillColor","#2563EB").lstrip("#")
-            r,g,b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+            r, g, b = _parse_hex_color(ov.get("fillColor", "#2563EB"), (37, 99, 235))
             overlay_img = Image.new("RGBA", img.size, (0,0,0,0))
             ov_draw = ImageDraw.Draw(overlay_img)
             ov_draw.rectangle([x,y,x+w,y+h], fill=(r,g,b,160))
@@ -408,7 +426,7 @@ def _get_bake_font(size, bold=False, italic=False, family="Segoe UI"):
     if fp and Path(fp).exists():
         try:
             return ImageFont.truetype(fp, size)
-        except Exception:
+        except (OSError, IOError):
             pass
     # Fallback: try Segoe UI, then Arial
     for fb in ["Segoe UI", "Arial"]:
@@ -417,7 +435,7 @@ def _get_bake_font(size, bold=False, italic=False, family="Segoe UI"):
         if fb_path and Path(fb_path).exists():
             try:
                 return ImageFont.truetype(fb_path, size)
-            except Exception:
+            except (OSError, IOError):
                 continue
     return ImageFont.load_default()
 
@@ -481,8 +499,7 @@ def bake_overlays(num):
         opacity = ov.get("opacity", 1)
 
         if ov["type"] == "rect":
-            hex_c = ov.get("fillColor", "#2563EB").lstrip("#")
-            r, g, b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+            r, g, b = _parse_hex_color(ov.get("fillColor", "#2563EB"), (37, 99, 235))
             a = int(opacity * 255)
             layer = Image.new("RGBA", img.size, (0,0,0,0))
             ImageDraw.Draw(layer).rectangle([x, y, x+ow, y+oh], fill=(r,g,b,a))
@@ -492,15 +509,13 @@ def bake_overlays(num):
             draw = ImageDraw.Draw(img)
             bg = ov.get("bgColor", "transparent")
             if bg and bg != "transparent":
-                hex_c = bg.lstrip("#")
-                cr, cg, cb = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+                cr, cg, cb = _parse_hex_color(bg)
                 layer = Image.new("RGBA", img.size, (0,0,0,0))
                 ImageDraw.Draw(layer).rectangle([x, y, x+ow, y+oh], fill=(cr,cg,cb,int(opacity*255)))
                 img = Image.alpha_composite(img, layer)
                 draw = ImageDraw.Draw(img)
 
-            hex_c = ov.get("color", "#FFFFFF").lstrip("#")
-            r, g, b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+            r, g, b = _parse_hex_color(ov.get("color", "#FFFFFF"), (255, 255, 255))
             raw_fs = ov.get("fontSize", 18)
             font_size = max(8, int(raw_fs * w / 933))
             is_bold = ov.get("bold", False)
@@ -514,9 +529,9 @@ def bake_overlays(num):
             text_transform = ov.get("textTransform", "none")
             list_style = ov.get("listStyle", "none")
             has_shadow = ov.get("shadow", False)
-            shadow_color_hex = ov.get("shadowColor", "#000000").lstrip("#")
+            shadow_color = _parse_hex_color(ov.get("shadowColor", "#000000"))
             has_outline = ov.get("outline", False)
-            outline_color_hex = ov.get("outlineColor", "#000000").lstrip("#")
+            outline_color = _parse_hex_color(ov.get("outlineColor", "#000000"))
             outline_width = ov.get("outlineWidth", 1)
             has_underline = ov.get("underline", False)
             auto_fit = ov.get("autoFit", False)
@@ -562,19 +577,8 @@ def bake_overlays(num):
             ty = y + 8
             align = ov.get("align", "left")
 
-            # Shadow color
-            sr, sg, sb = 0, 0, 0
-            if has_shadow:
-                sr = int(shadow_color_hex[0:2], 16)
-                sg = int(shadow_color_hex[2:4], 16)
-                sb = int(shadow_color_hex[4:6], 16)
-
-            # Outline color
-            olr, olg, olb = 0, 0, 0
-            if has_outline:
-                olr = int(outline_color_hex[0:2], 16)
-                olg = int(outline_color_hex[2:4], 16)
-                olb = int(outline_color_hex[4:6], 16)
+            sr, sg, sb = shadow_color if has_shadow else (0, 0, 0)
+            olr, olg, olb = outline_color if has_outline else (0, 0, 0)
 
             for ln in lines:
                 bbox = font.getbbox(ln)
@@ -761,8 +765,6 @@ def sample_color(num):
     txt_hex = f"#{text_color[0]:02x}{text_color[1]:02x}{text_color[2]:02x}"
 
     # --- Detect font weight via ink density ---
-    region = img.crop((x1, y1, x2, y2))
-    rw, rh = region.size
     total_px = 0
     ink_px = 0
     for col in range(0, rw, max(1, rw // 60)):
@@ -795,7 +797,13 @@ def upload_image():
     if "file" not in request.files:
         return jsonify({"error": "No file"}), 400
     f = request.files["file"]
-    img = Image.open(f.stream).convert("RGBA")
+    try:
+        img = Image.open(f.stream)
+    except Exception:
+        return jsonify({"error": "Invalid image file"}), 400
+    if img.format and img.format not in ALLOWED_IMAGE_FORMATS:
+        return jsonify({"error": f"Unsupported image format: {img.format}"}), 400
+    img = img.convert("RGBA")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
@@ -838,10 +846,6 @@ def reorder_slides():
         new_data[str(new_idx)] = data.get(str(old_idx), {"overlays": [], "notes": ""})
     save_data(new_data)
 
-    global SLIDE_FILES, NUM_SLIDES
-    SLIDE_FILES = _get_slide_files()
-    NUM_SLIDES = len(SLIDE_FILES)
-
     return jsonify({"ok": True})
 
 
@@ -854,12 +858,12 @@ def export_pdf():
     if not slide_files:
         return jsonify({"error": "No slides to export"}), 400
 
-    images = []
-    for sf in slide_files:
-        images.append(Image.open(sf).convert("RGB"))
+    first_img = Image.open(slide_files[0]).convert("RGB")
+    rest = (Image.open(sf).convert("RGB") for sf in slide_files[1:])
 
-    out_path = EXPORT_DIR / "Slides_Export.pdf"
-    images[0].save(str(out_path), save_all=True, append_images=images[1:], resolution=150)
+    import uuid
+    out_path = EXPORT_DIR / f"Slides_Export_{uuid.uuid4().hex[:8]}.pdf"
+    first_img.save(str(out_path), save_all=True, append_images=rest, resolution=150)
 
     return send_file(str(out_path), as_attachment=True, download_name="Slides_Export.pdf")
 
@@ -885,8 +889,8 @@ def _add_overlay(slide, ov, slide_w, slide_h):
 
         font = run.font
         font.size = Pt(ov.get("fontSize", 18))
-        hex_c = ov.get("color", "#FFFFFF").lstrip("#")
-        font.color.rgb = RGBColor(int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16))
+        r, g, b = _parse_hex_color(ov.get("color", "#FFFFFF"), (255, 255, 255))
+        font.color.rgb = RGBColor(r, g, b)
         font.bold   = ov.get("bold", False)
         font.italic = ov.get("italic", False)
 
@@ -895,21 +899,19 @@ def _add_overlay(slide, ov, slide_w, slide_h):
 
         bg_hex = ov.get("bgColor", "")
         if bg_hex and bg_hex != "transparent":
-            bg_hex = bg_hex.lstrip("#")
+            br, bg_, bb = _parse_hex_color(bg_hex)
             fill = txBox.fill
             fill.solid()
-            fill.fore_color.rgb = RGBColor(int(bg_hex[0:2],16), int(bg_hex[2:4],16), int(bg_hex[4:6],16))
+            fill.fore_color.rgb = RGBColor(br, bg_, bb)
 
     elif kind == "rect":
         shape = slide.shapes.add_shape(1, left, top, width, height)
-        hex_c = ov.get("fillColor", "#2563EB").lstrip("#")
+        r, g, b = _parse_hex_color(ov.get("fillColor", "#2563EB"), (37, 99, 235))
         shape.fill.solid()
-        shape.fill.fore_color.rgb = RGBColor(int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16))
+        shape.fill.fore_color.rgb = RGBColor(r, g, b)
         shape.line.fill.background()
-        shape.fill.fore_color.theme_color = None
 
     elif kind == "image":
-        # Decode base64 image and add as picture
         src = ov.get("src", "")
         if src.startswith("data:"):
             img_data = base64.b64decode(src.split(",", 1)[1])
@@ -918,8 +920,8 @@ def _add_overlay(slide, ov, slide_w, slide_h):
 
     elif kind == "arrow":
         line_shape = slide.shapes.add_connector(1, left, top, left+width, top+height)
-        hex_c = ov.get("color", "#FF0000").lstrip("#")
-        line_shape.line.color.rgb = RGBColor(int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16))
+        r, g, b = _parse_hex_color(ov.get("color", "#FF0000"), (255, 0, 0))
+        line_shape.line.color.rgb = RGBColor(r, g, b)
         line_shape.line.width = Pt(2)
 
 
@@ -933,7 +935,8 @@ def export_png_zip():
     if not slide_files:
         return jsonify({"error": "No slides"}), 400
 
-    zip_path = EXPORT_DIR / "slides_export.zip"
+    import uuid
+    zip_path = EXPORT_DIR / f"slides_export_{uuid.uuid4().hex[:8]}.zip"
     with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
         for sf in slide_files:
             img = Image.open(sf).convert("RGB")
@@ -963,7 +966,8 @@ def export_gif():
         img = img.resize((800, 450), Image.BILINEAR)
         frames.append(img)
 
-    gif_path = EXPORT_DIR / "slides_export.gif"
+    import uuid as _uuid
+    gif_path = EXPORT_DIR / f"slides_export_{_uuid.uuid4().hex[:8]}.gif"
     frames[0].save(str(gif_path), save_all=True, append_images=frames[1:],
                    duration=duration_ms, loop=0, optimize=True)
 
@@ -1356,7 +1360,8 @@ def batch_upload():
 
 @app.route("/api/batch/process", methods=["POST"])
 def batch_process():
-    """Process a batch of uploaded PPTX files — remove logos from all."""
+    """Process a batch of uploaded PPTX files — remove logos from all.
+    WARNING: Each file replaces current slides. Only the last file's slides remain."""
     payload = request.json
     filenames = payload.get("files", [])
     results = []
@@ -1368,7 +1373,7 @@ def batch_process():
             continue
         try:
             process_uploaded_pptx(fpath)
-            results.append({"file": fname, "status": "ok", "slides": NUM_SLIDES})
+            results.append({"file": fname, "status": "ok", "slides": len(_get_slide_files())})
         except Exception as e:
             results.append({"file": fname, "status": "error", "error": str(e)})
 
@@ -1397,6 +1402,8 @@ def save_template():
     """Save current slides + overlays as a named template."""
     payload = request.json
     name = secure_filename(payload.get("name", "untitled"))
+    if not name:
+        return jsonify({"error": "No template name specified"}), 400
 
     slide_files = _get_slide_files()
     data = load_data()
@@ -1421,6 +1428,8 @@ def load_template():
     """Load a template — restore slide images + overlays."""
     payload = request.json
     name = secure_filename(payload.get("name", ""))
+    if not name:
+        return jsonify({"error": "No template name specified"}), 400
 
     tpl_dir = TEMPLATES_DIR / name
     meta_file = TEMPLATES_DIR / f"{name}.json"
@@ -1440,20 +1449,18 @@ def load_template():
     meta = json.loads(meta_file.read_text())
     save_data(meta.get("data", {}))
 
-    global SLIDE_FILES, NUM_SLIDES
-    SLIDE_FILES = _get_slide_files()
-    NUM_SLIDES = len(SLIDE_FILES)
-
-    return jsonify({"ok": True, "slides": NUM_SLIDES})
+    return jsonify({"ok": True, "slides": len(_get_slide_files())})
 
 
 @app.route("/api/templates/delete", methods=["POST"])
 def delete_template():
     """Delete a saved template."""
     name = secure_filename(request.json.get("name", ""))
+    if not name:
+        return jsonify({"error": "No template name specified"}), 400
     tpl_dir = TEMPLATES_DIR / name
     meta_file = TEMPLATES_DIR / f"{name}.json"
-    if tpl_dir.exists():
+    if tpl_dir.exists() and tpl_dir != TEMPLATES_DIR:
         shutil.rmtree(str(tpl_dir))
     meta_file.unlink(missing_ok=True)
     return jsonify({"ok": True})
@@ -1469,7 +1476,8 @@ HISTORY_DIR.mkdir(exist_ok=True)
 def save_version():
     """Save a snapshot of current slide state."""
     import datetime
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    import uuid
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{uuid.uuid4().hex[:4]}"
     version_dir = HISTORY_DIR / ts
 
     version_dir.mkdir(exist_ok=True)
@@ -1496,9 +1504,11 @@ def list_versions():
 @app.route("/api/history/restore", methods=["POST"])
 def restore_version():
     """Restore a previous version."""
-    version = secure_filename(request.json.get("version", ""))
+    version = secure_filename(request.json.get("version", "") or request.json.get("name", ""))
+    if not version:
+        return jsonify({"error": "No version specified"}), 400
     version_dir = HISTORY_DIR / version
-    if not version_dir.exists():
+    if not version_dir.exists() or version_dir == HISTORY_DIR:
         return jsonify({"error": "Version not found"}), 404
 
     for f in SLIDES_DIR.glob("slide-*.jpg"):
@@ -1510,11 +1520,7 @@ def restore_version():
     if data_file.exists():
         save_data(json.loads(data_file.read_text()))
 
-    global SLIDE_FILES, NUM_SLIDES
-    SLIDE_FILES = _get_slide_files()
-    NUM_SLIDES = len(SLIDE_FILES)
-
-    return jsonify({"ok": True, "slides": NUM_SLIDES})
+    return jsonify({"ok": True, "slides": len(_get_slide_files())})
 
 
 # ── Comments / Annotations ──────────────────────────────────────────────────
@@ -1523,13 +1529,15 @@ COMMENTS_FILE = BASE_DIR / "comments.json"
 
 
 def _load_comments():
-    if COMMENTS_FILE.exists():
-        return json.loads(COMMENTS_FILE.read_text())
-    return {}
+    with _data_lock:
+        if COMMENTS_FILE.exists():
+            return json.loads(COMMENTS_FILE.read_text())
+        return {}
 
 
 def _save_comments(data):
-    COMMENTS_FILE.write_text(json.dumps(data, indent=2))
+    with _data_lock:
+        COMMENTS_FILE.write_text(json.dumps(data, indent=2))
 
 
 @app.route("/api/comments/<int:num>", methods=["GET"])
@@ -1647,13 +1655,13 @@ def detect_video_logo():
         return jsonify({"error": "Video not found"}), 400
 
     cap = cv2.VideoCapture(str(video_path))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 30)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, min(30, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) - 1))
     ret, frame = cap.read()
-    h, w = frame.shape[:2]
     cap.release()
 
-    if not ret:
-        return jsonify({"error": "Cannot read frame"}), 500
+    if not ret or frame is None:
+        return jsonify({"error": "Cannot read frame from video"}), 500
+    h, w = frame.shape[:2]
 
     # Look for small, consistent elements in corners (typical logo locations)
     # Check bottom-right quadrant for text-like regions
@@ -1695,7 +1703,7 @@ def detect_video_logo():
 
 @app.route("/api/video/replace-logo", methods=["POST"])
 def replace_video_logo():
-    """Replace logo in video with a custom image overlay."""
+    """Replace logo in video with a custom image overlay. Returns jobId for polling."""
     if "logo" not in request.files:
         return jsonify({"error": "No logo image"}), 400
 
@@ -1710,78 +1718,118 @@ def replace_video_logo():
     if not video_path.exists():
         return jsonify({"error": "Video not found"}), 400
 
-    # Read logo image
+    # Read logo image into memory before thread starts (stream won't be available later)
     logo_img = Image.open(logo_file.stream).convert("RGBA")
 
+    _cleanup_video_jobs()
+    job_id = f"replace_{int(_time.time()*1000)}"
+    _video_jobs[job_id] = {"status": "starting", "progress": 0, "total": 0, "eta": 0, "output": "", "error": "", "created_at": _time.time()}
+
+    t = threading.Thread(target=_run_logo_replace, args=(job_id, video_path, fname, lx, ly, lw_pct, lh_pct, logo_img), daemon=True)
+    t.start()
+
+    return jsonify({"ok": True, "jobId": job_id})
+
+
+def _run_logo_replace(job_id, video_path, fname, lx, ly, lw_pct, lh_pct, logo_img):
+    """Background worker for video logo replacement."""
     import cv2
     import numpy as np
 
-    cap = cv2.VideoCapture(str(video_path))
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    job = _video_jobs[job_id]
+    job["status"] = "processing"
 
-    x1, y1 = int(lx * w), int(ly * h)
-    x2, y2 = min(w, int((lx + lw_pct) * w)), min(h, int((ly + lh_pct) * h))
-    logo_w, logo_h = x2 - x1, y2 - y1
-
-    # Resize logo to fit region
-    logo_resized = logo_img.resize((logo_w, logo_h), Image.LANCZOS)
-    logo_arr = np.array(logo_resized)
-
-    # Separate alpha channel
-    if logo_arr.shape[2] == 4:
-        logo_rgb = logo_arr[:, :, :3]
-        logo_alpha = logo_arr[:, :, 3:] / 255.0
-    else:
-        logo_rgb = logo_arr
-        logo_alpha = np.ones((logo_h, logo_w, 1))
-
-    # Convert RGB to BGR for OpenCV
-    logo_bgr = logo_rgb[:, :, ::-1]
-
-    out_name = f"branded_{secure_filename(fname)}"
-    if not out_name.lower().endswith('.mp4'):
-        out_name = out_name.rsplit('.', 1)[0] + '.mp4'
-    temp_path = VIDEO_DIR / f"_temp_{out_name}"
-    out_path = VIDEO_DIR / out_name
-
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (w, h))
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # Alpha blend logo onto frame
-        roi = frame[y1:y2, x1:x2].astype(np.float64)
-        blended = roi * (1 - logo_alpha) + logo_bgr.astype(np.float64) * logo_alpha
-        frame[y1:y2, x1:x2] = blended.astype(np.uint8)
-        writer.write(frame)
-
-    cap.release()
-    writer.release()
-
-    # Mux audio
     try:
-        from moviepy import VideoFileClip
-        original = VideoFileClip(str(video_path))
-        clean = VideoFileClip(str(temp_path))
-        if original.audio is not None:
-            final = clean.with_audio(original.audio)
-            final.write_videofile(str(out_path), codec='libx264', audio_codec='aac', logger=None)
-            final.close()
-        else:
-            clean.write_videofile(str(out_path), codec='libx264', logger=None)
-        original.close()
-        clean.close()
-        temp_path.unlink(missing_ok=True)
-    except Exception:
-        if temp_path.exists():
-            shutil.move(str(temp_path), str(out_path))
+        cap = cv2.VideoCapture(str(video_path))
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        job["total"] = total
 
-    return jsonify({"ok": True, "output": out_name})
+        x1, y1 = int(lx * w), int(ly * h)
+        x2, y2 = min(w, int((lx + lw_pct) * w)), min(h, int((ly + lh_pct) * h))
+        logo_w, logo_h = x2 - x1, y2 - y1
+
+        logo_resized = logo_img.resize((logo_w, logo_h), Image.LANCZOS)
+        logo_arr = np.array(logo_resized)
+
+        if logo_arr.shape[2] == 4:
+            logo_rgb = logo_arr[:, :, :3]
+            logo_alpha = logo_arr[:, :, 3:] / 255.0
+        else:
+            logo_rgb = logo_arr
+            logo_alpha = np.ones((logo_h, logo_w, 1))
+
+        logo_bgr = logo_rgb[:, :, ::-1]
+
+        out_name = f"branded_{secure_filename(fname)}"
+        if not out_name.lower().endswith('.mp4'):
+            out_name = out_name.rsplit('.', 1)[0] + '.mp4'
+        temp_path = VIDEO_DIR / f"_temp_{out_name}"
+        out_path = VIDEO_DIR / out_name
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (w, h))
+
+        frame_num = 0
+        start_time = _time.time()
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if job.get("cancel"):
+                job["status"] = "cancelled"
+                break
+
+            roi = frame[y1:y2, x1:x2].astype(np.float64)
+            blended = roi * (1 - logo_alpha) + logo_bgr.astype(np.float64) * logo_alpha
+            frame[y1:y2, x1:x2] = blended.astype(np.uint8)
+            writer.write(frame)
+            frame_num += 1
+
+            if frame_num % 10 == 0:
+                elapsed = _time.time() - start_time
+                fps_actual = frame_num / max(0.1, elapsed)
+                job["progress"] = frame_num
+                job["eta"] = round((total - frame_num) / max(1, fps_actual), 1)
+
+        cap.release()
+        writer.release()
+
+        if job.get("cancel"):
+            temp_path.unlink(missing_ok=True)
+            job["eta"] = 0
+            return
+
+        # Mux audio
+        job["status"] = "muxing_audio"
+        try:
+            from moviepy import VideoFileClip
+            original = VideoFileClip(str(video_path))
+            clean = VideoFileClip(str(temp_path))
+            if original.audio is not None:
+                final = clean.with_audio(original.audio)
+                final.write_videofile(str(out_path), codec='libx264', audio_codec='aac', logger=None)
+                final.close()
+            else:
+                clean.write_videofile(str(out_path), codec='libx264', logger=None)
+            original.close()
+            clean.close()
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            if temp_path.exists():
+                shutil.move(str(temp_path), str(out_path))
+
+        job["status"] = "done"
+        job["progress"] = total
+        job["output"] = out_name
+        job["eta"] = 0
+
+    except Exception as e:
+        job["status"] = "error"
+        job["error"] = str(e)
 
 
 # ── Batch Video Processing ──────────────────────────────────────────────────
@@ -1793,16 +1841,13 @@ def batch_video_upload():
     filenames = []
     for f in files:
         fname = secure_filename(f.filename)
-        if fname:
+        if fname and Path(fname).suffix.lower() in ALLOWED_VIDEO_EXTS:
             f.save(str(VIDEO_DIR / fname))
             filenames.append(fname)
     return jsonify({"ok": True, "files": filenames})
 
 
 # ── Video Logo Removal ──────────────────────────────────────────────────────
-
-VIDEO_DIR = BASE_DIR / "videos"
-VIDEO_DIR.mkdir(exist_ok=True)
 
 @app.route("/video")
 def video_page():
@@ -1818,6 +1863,9 @@ def upload_video():
     fname = secure_filename(f.filename)
     if not fname:
         return jsonify({"error": "Invalid filename"}), 400
+    ext = Path(fname).suffix.lower()
+    if ext not in ALLOWED_VIDEO_EXTS:
+        return jsonify({"error": f"Unsupported video format: {ext}. Allowed: {', '.join(ALLOWED_VIDEO_EXTS)}"}), 400
 
     save_path = VIDEO_DIR / fname
     f.save(str(save_path))
@@ -1859,9 +1907,20 @@ def video_preview_frame():
     })
 
 
-import threading, time as _time
+import time as _time
 
-_video_jobs = {}  # job_id → {status, progress, total, eta, output, error}
+_video_jobs = {}  # job_id → {status, progress, total, eta, output, error, created_at}
+_VIDEO_JOB_MAX_AGE = 3600  # expire jobs after 1 hour
+
+
+def _cleanup_video_jobs():
+    """Remove completed/cancelled jobs older than max age."""
+    now = _time.time()
+    expired = [jid for jid, job in _video_jobs.items()
+               if job.get("status") in ("done", "cancelled", "error")
+               and now - job.get("created_at", 0) > _VIDEO_JOB_MAX_AGE]
+    for jid in expired:
+        del _video_jobs[jid]
 
 
 @app.route("/api/video/remove-logo", methods=["POST"])
@@ -1878,8 +1937,9 @@ def remove_video_logo():
     if not video_path.exists():
         return jsonify({"error": "Video not found"}), 400
 
+    _cleanup_video_jobs()
     job_id = f"job_{int(_time.time()*1000)}"
-    _video_jobs[job_id] = {"status": "starting", "progress": 0, "total": 0, "eta": 0, "output": "", "error": ""}
+    _video_jobs[job_id] = {"status": "starting", "progress": 0, "total": 0, "eta": 0, "output": "", "error": "", "created_at": _time.time()}
 
     t = threading.Thread(target=_run_logo_removal, args=(job_id, video_path, fname, lx, ly, lw, lh), daemon=True)
     t.start()
@@ -1982,8 +2042,9 @@ def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
             clean = VideoFileClip(str(temp_path))
             if original.audio is not None:
                 final = clean.with_audio(original.audio)
+                temp_audio = VIDEO_DIR / f'_temp_audio_{job_id}.m4a'
                 final.write_videofile(str(out_path), codec='libx264', audio_codec='aac',
-                                      logger=None, temp_audiofile=str(VIDEO_DIR / '_temp_audio.m4a'))
+                                      logger=None, temp_audiofile=str(temp_audio))
                 final.close()
             else:
                 clean.write_videofile(str(out_path), codec='libx264', logger=None)
@@ -1994,7 +2055,7 @@ def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
             if temp_path.exists():
                 shutil.move(str(temp_path), str(out_path))
 
-        (VIDEO_DIR / '_temp_audio.m4a').unlink(missing_ok=True)
+        (VIDEO_DIR / f'_temp_audio_{job_id}.m4a').unlink(missing_ok=True)
 
         job["status"] = "done"
         job["progress"] = total
@@ -2008,11 +2069,13 @@ def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
 
 @app.route("/api/video/download/<filename>")
 def download_video(filename):
-    fpath = VIDEO_DIR / secure_filename(filename)
+    safe_name = secure_filename(filename)
+    fpath = VIDEO_DIR / safe_name
     if not fpath.exists():
         return jsonify({"error": "File not found"}), 404
-    return send_file(str(fpath), as_attachment=True, download_name=filename)
+    return send_file(str(fpath), as_attachment=True, download_name=safe_name)
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5050, host="0.0.0.0")
+    app.run(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true',
+            port=int(os.environ.get('PORT', 5050)), host="0.0.0.0")
