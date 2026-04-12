@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue?style=flat-square&logo=python&logoColor=white"/>
   <img src="https://img.shields.io/badge/flask-3.x-green?style=flat-square&logo=flask&logoColor=white"/>
   <img src="https://img.shields.io/badge/features-45+-purple?style=flat-square"/>
-  <img src="https://img.shields.io/badge/routes-50-orange?style=flat-square"/>
+  <img src="https://img.shields.io/badge/routes-44-orange?style=flat-square"/>
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square"/>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square"/>
 </p>
@@ -465,7 +465,7 @@ Press `?` in the editor to see the full cheatsheet.
 
 ```
 slidecraft/
-├── app.py                  # Flask backend — 50 API routes
+├── app.py                  # Flask backend — 44 API routes
 ├── requirements.txt        # Python dependencies
 ├── LICENSE                 # MIT license
 ├── .gitignore              # Git ignore rules
@@ -485,7 +485,7 @@ slidecraft/
 
 ---
 
-## API Reference (50 Routes)
+## API Reference (44 Routes)
 
 ### Slide Endpoints
 | Method | Endpoint | Description |
@@ -523,8 +523,6 @@ slidecraft/
 ### Batch Endpoints
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/batch/upload` | Upload multiple PPTX files |
-| `POST` | `/api/batch/process` | Process batch — remove logos |
 | `POST` | `/api/batch/remove-logo` | Bulk upload up to 10 PPTX, remove logos, return ZIP |
 
 ### Template Endpoints
@@ -559,10 +557,6 @@ slidecraft/
 | `POST` | `/api/video/remove-logo` | Start logo removal (returns jobId) |
 | `GET` | `/api/video/progress/<jobId>` | Poll job progress |
 | `POST` | `/api/video/stop/<jobId>` | Stop a running job |
-| `POST` | `/api/video/trim` | Trim video start/end |
-| `POST` | `/api/video/detect-logo` | Auto-detect logo position |
-| `POST` | `/api/video/replace-logo` | Replace logo with custom image |
-| `POST` | `/api/video/batch-upload` | Upload multiple videos |
 | `GET` | `/api/video/download/<file>` | Download processed video |
 
 ---
@@ -640,5 +634,5 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 <p align="center">
   Built with Flask + Pillow + OpenCV + EasyOCR + MoviePy<br>
-  <strong>50 API routes | 45+ features | 0 build steps</strong>
+  <strong>44 API routes | 45+ features | 0 build steps</strong>
 </p>

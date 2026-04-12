@@ -148,9 +148,10 @@ def _find_libreoffice():
     return None
 
 
-def _convert_pptx_to_images_libreoffice(pptx_path):
+def _convert_pptx_to_images_libreoffice(pptx_path, output_dir=None):
     """PPTX → PDF (LibreOffice) → JPG per page (pdf2image or PyMuPDF)."""
     import tempfile
+    dest = output_dir or SLIDES_DIR
     lo_cmd = _find_libreoffice()
     if not lo_cmd:
         raise RuntimeError("LibreOffice not found")
@@ -170,21 +171,22 @@ def _convert_pptx_to_images_libreoffice(pptx_path):
             from pdf2image import convert_from_path
             for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=200)):
                 img.convert("RGB").save(
-                    str(SLIDES_DIR / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
+                    str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
         except ImportError:
             import fitz
             doc = fitz.open(str(pdf_files[0]))
             mat = fitz.Matrix(2.0, 2.0)
             for i, page in enumerate(doc):
                 pix = page.get_pixmap(matrix=mat)
-                (SLIDES_DIR / f"slide-{i+1:02d}.jpg").write_bytes(pix.tobytes("jpeg"))
+                (dest / f"slide-{i+1:02d}.jpg").write_bytes(pix.tobytes("jpeg"))
             doc.close()
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _convert_pptx_to_images_pillow(pptx_path):
+def _convert_pptx_to_images_pillow(pptx_path, output_dir=None):
     """Fallback: extract embedded pictures from PPTX shapes (limited fidelity)."""
+    dest = output_dir or SLIDES_DIR
     prs = Presentation(str(pptx_path))
     sw_emu, sh_emu = prs.slide_width, prs.slide_height
 
@@ -198,7 +200,7 @@ def _convert_pptx_to_images_pillow(pptx_path):
                 sw   = int(shape.width  / sw_emu * SLIDE_W_PX) if sw_emu else SLIDE_W_PX
                 sh   = int(shape.height / sh_emu * SLIDE_H_PX) if sh_emu else SLIDE_H_PX
                 img.paste(shape_img.resize((sw, sh), Image.BILINEAR), (left, top))
-        img.save(str(SLIDES_DIR / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
+        img.save(str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -1452,46 +1454,6 @@ def add_image_watermark():
 
 # ── Batch Processing ────────────────────────────────────────────────────────
 
-@app.route("/api/batch/upload", methods=["POST"])
-def batch_upload():
-    """Upload multiple PPTX files for batch processing."""
-    files = request.files.getlist("files")
-    if not files:
-        return jsonify({"error": "No files"}), 400
-
-    UPLOAD_DIR.mkdir(exist_ok=True)
-    filenames = []
-    for f in files:
-        if f.filename.lower().endswith(".pptx"):
-            fname = secure_filename(f.filename)
-            f.save(str(UPLOAD_DIR / fname))
-            filenames.append(fname)
-
-    return jsonify({"ok": True, "files": filenames, "count": len(filenames)})
-
-
-@app.route("/api/batch/process", methods=["POST"])
-def batch_process():
-    """Process a batch of uploaded PPTX files — remove logos from all.
-    WARNING: Each file replaces current slides. Only the last file's slides remain."""
-    payload = request.json
-    filenames = payload.get("files", [])
-    results = []
-
-    for fname in filenames:
-        fpath = UPLOAD_DIR / secure_filename(fname)
-        if not fpath.exists():
-            results.append({"file": fname, "status": "not_found"})
-            continue
-        try:
-            process_uploaded_pptx(fpath)
-            results.append({"file": fname, "status": "ok", "slides": len(_get_slide_files())})
-        except Exception as e:
-            results.append({"file": fname, "status": "error", "error": str(e)})
-
-    return jsonify({"ok": True, "results": results})
-
-
 @app.route("/api/batch/remove-logo", methods=["POST"])
 def batch_remove_logo():
     """Upload up to 10 PPTX files, remove logos from all slides in each,
@@ -1525,11 +1487,11 @@ def batch_remove_logo():
                 file_slides_dir = tmp_dir / f"slides_{fname}"
                 file_slides_dir.mkdir(exist_ok=True)
 
-                # Convert PPTX to images
+                # Convert PPTX to images (reuse shared conversion functions)
                 try:
-                    _batch_convert_pptx(input_path, file_slides_dir)
+                    _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
                 except (RuntimeError, FileNotFoundError, subprocess.SubprocessError, OSError):
-                    _batch_convert_pptx_pillow(input_path, file_slides_dir)
+                    _convert_pptx_to_images_pillow(input_path, file_slides_dir)
 
                 # Remove logos from all slide images
                 slide_images = sorted(file_slides_dir.glob("slide-*.jpg"))
@@ -1560,55 +1522,6 @@ def batch_remove_logo():
     finally:
         shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
-
-def _batch_convert_pptx(pptx_path, output_dir):
-    """Convert PPTX to slide images using LibreOffice (for batch — doesn't touch SLIDES_DIR)."""
-    import tempfile
-    lo_cmd = _find_libreoffice()
-    if not lo_cmd:
-        raise RuntimeError("LibreOffice not found")
-    tmp_dir = Path(tempfile.mkdtemp())
-    try:
-        subprocess.run(
-            [lo_cmd, "--headless", "--convert-to", "pdf",
-             "--outdir", str(tmp_dir), str(pptx_path)],
-            check=True, timeout=120,
-        )
-        pdf_files = list(tmp_dir.glob("*.pdf"))
-        if not pdf_files:
-            raise RuntimeError("PDF conversion produced no output")
-        try:
-            from pdf2image import convert_from_path
-            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=200)):
-                img.convert("RGB").save(
-                    str(output_dir / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
-        except ImportError:
-            import fitz
-            doc = fitz.open(str(pdf_files[0]))
-            mat = fitz.Matrix(2.0, 2.0)
-            for i, page in enumerate(doc):
-                pix = page.get_pixmap(matrix=mat)
-                (output_dir / f"slide-{i+1:02d}.jpg").write_bytes(pix.tobytes("jpeg"))
-            doc.close()
-    finally:
-        shutil.rmtree(str(tmp_dir), ignore_errors=True)
-
-
-def _batch_convert_pptx_pillow(pptx_path, output_dir):
-    """Fallback: extract embedded pictures from PPTX shapes (for batch)."""
-    prs = Presentation(str(pptx_path))
-    sw_emu, sh_emu = prs.slide_width, prs.slide_height
-    for i, slide in enumerate(prs.slides):
-        img = Image.new("RGB", (SLIDE_W_PX, SLIDE_H_PX), (255, 255, 255))
-        for shape in slide.shapes:
-            if shape.shape_type == 13:
-                shape_img = Image.open(io.BytesIO(shape.image.blob))
-                left = int(shape.left / sw_emu * SLIDE_W_PX) if sw_emu else 0
-                top  = int(shape.top  / sh_emu * SLIDE_H_PX) if sh_emu else 0
-                sw   = int(shape.width  / sw_emu * SLIDE_W_PX) if sw_emu else SLIDE_W_PX
-                sh   = int(shape.height / sh_emu * SLIDE_H_PX) if sh_emu else SLIDE_H_PX
-                img.paste(shape_img.resize((sw, sh), Image.BILINEAR), (left, top))
-        img.save(str(output_dir / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
 
 
 def _rebuild_pptx_from_images(slide_images, output_path):
@@ -1853,245 +1766,6 @@ def find_replace():
                 count += 1
     save_data(data)
     return jsonify({"ok": True, "replacements": count})
-
-
-# ── Video Trim ──────────────────────────────────────────────────────────────
-
-@app.route("/api/video/trim", methods=["POST"])
-def trim_video():
-    """Trim a video to start/end times (in seconds)."""
-    payload = request.json
-    fname = payload.get("filename", "")
-    start = float(payload.get("start", 0))
-    end = float(payload.get("end", 0))
-
-    video_path = VIDEO_DIR / secure_filename(fname)
-    if not video_path.exists():
-        return jsonify({"error": "Video not found"}), 400
-
-    try:
-        from moviepy import VideoFileClip
-        clip = VideoFileClip(str(video_path))
-        if end <= 0 or end > clip.duration:
-            end = clip.duration
-        trimmed = clip.subclipped(start, end)
-        out_name = f"trimmed_{secure_filename(fname)}"
-        if not out_name.lower().endswith('.mp4'):
-            out_name = out_name.rsplit('.', 1)[0] + '.mp4'
-        out_path = VIDEO_DIR / out_name
-        trimmed.write_videofile(str(out_path), codec='libx264', audio_codec='aac', logger=None)
-        trimmed.close()
-        clip.close()
-        return jsonify({"ok": True, "output": out_name, "duration": round(end - start, 1)})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# ── Auto Logo Detection in Video ────────────────────────────────────────────
-
-@app.route("/api/video/detect-logo", methods=["POST"])
-def detect_video_logo():
-    """Try to auto-detect logo position in a video frame using edge/contour analysis."""
-    import cv2
-    import numpy as np
-
-    payload = request.json
-    fname = payload.get("filename", "")
-    video_path = VIDEO_DIR / secure_filename(fname)
-    if not video_path.exists():
-        return jsonify({"error": "Video not found"}), 400
-
-    cap = cv2.VideoCapture(str(video_path))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, min(30, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) - 1))
-    ret, frame = cap.read()
-    cap.release()
-
-    if not ret or frame is None:
-        return jsonify({"error": "Cannot read frame from video"}), 500
-    h, w = frame.shape[:2]
-
-    # Look for small, consistent elements in corners (typical logo locations)
-    # Check bottom-right quadrant for text-like regions
-    corners = [
-        ("bottom-right", frame[int(h*0.85):, int(w*0.7):]),
-        ("bottom-left",  frame[int(h*0.85):, :int(w*0.3)]),
-        ("top-right",    frame[:int(h*0.15), int(w*0.7):]),
-        ("top-left",     frame[:int(h*0.15), :int(w*0.3)]),
-    ]
-
-    best = None
-    best_score = 0
-
-    for corner_name, roi in corners:
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150)
-        score = np.sum(edges > 0)
-        rh, rw = roi.shape[:2]
-        density = score / max(1, rh * rw)
-
-        if density > 0.02 and density < 0.5 and score > best_score:
-            best_score = score
-            if corner_name == "bottom-right":
-                best = {"x": 0.7, "y": 0.85, "w": 0.3, "h": 0.15}
-            elif corner_name == "bottom-left":
-                best = {"x": 0.0, "y": 0.85, "w": 0.3, "h": 0.15}
-            elif corner_name == "top-right":
-                best = {"x": 0.7, "y": 0.0, "w": 0.3, "h": 0.15}
-            elif corner_name == "top-left":
-                best = {"x": 0.0, "y": 0.0, "w": 0.3, "h": 0.15}
-
-    if not best:
-        best = {"x": 0.85, "y": 0.92, "w": 0.14, "h": 0.07}  # default bottom-right
-
-    return jsonify({"ok": True, "region": best})
-
-
-# ── Replace Logo (swap with custom image) ──────────────────────────────────
-
-@app.route("/api/video/replace-logo", methods=["POST"])
-def replace_video_logo():
-    """Replace logo in video with a custom image overlay. Returns jobId for polling."""
-    if "logo" not in request.files:
-        return jsonify({"error": "No logo image"}), 400
-
-    logo_file = request.files["logo"]
-    fname = request.form.get("filename", "")
-    lx = float(request.form.get("x", 0.85))
-    ly = float(request.form.get("y", 0.93))
-    lw_pct = float(request.form.get("w", 0.14))
-    lh_pct = float(request.form.get("h", 0.06))
-
-    video_path = VIDEO_DIR / secure_filename(fname)
-    if not video_path.exists():
-        return jsonify({"error": "Video not found"}), 400
-
-    # Read logo image into memory before thread starts (stream won't be available later)
-    logo_img = Image.open(logo_file.stream).convert("RGBA")
-
-    _cleanup_video_jobs()
-    job_id = f"replace_{int(_time.time()*1000)}"
-    _video_jobs[job_id] = {"status": "starting", "progress": 0, "total": 0, "eta": 0, "output": "", "error": "", "created_at": _time.time()}
-
-    t = threading.Thread(target=_run_logo_replace, args=(job_id, video_path, fname, lx, ly, lw_pct, lh_pct, logo_img), daemon=True)
-    t.start()
-
-    return jsonify({"ok": True, "jobId": job_id})
-
-
-def _run_logo_replace(job_id, video_path, fname, lx, ly, lw_pct, lh_pct, logo_img):
-    """Background worker for video logo replacement."""
-    import cv2
-    import numpy as np
-
-    job = _video_jobs[job_id]
-    job["status"] = "processing"
-
-    try:
-        cap = cv2.VideoCapture(str(video_path))
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        job["total"] = total
-
-        x1, y1 = int(lx * w), int(ly * h)
-        x2, y2 = min(w, int((lx + lw_pct) * w)), min(h, int((ly + lh_pct) * h))
-        logo_w, logo_h = x2 - x1, y2 - y1
-
-        logo_resized = logo_img.resize((logo_w, logo_h), Image.LANCZOS)
-        logo_arr = np.array(logo_resized)
-
-        if logo_arr.shape[2] == 4:
-            logo_rgb = logo_arr[:, :, :3]
-            logo_alpha = logo_arr[:, :, 3:] / 255.0
-        else:
-            logo_rgb = logo_arr
-            logo_alpha = np.ones((logo_h, logo_w, 1))
-
-        logo_bgr = logo_rgb[:, :, ::-1]
-
-        out_name = f"branded_{secure_filename(fname)}"
-        if not out_name.lower().endswith('.mp4'):
-            out_name = out_name.rsplit('.', 1)[0] + '.mp4'
-        temp_path = VIDEO_DIR / f"_temp_{out_name}"
-        out_path = VIDEO_DIR / out_name
-
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (w, h))
-
-        frame_num = 0
-        start_time = _time.time()
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if job.get("cancel"):
-                job["status"] = "cancelled"
-                break
-
-            roi = frame[y1:y2, x1:x2].astype(np.float64)
-            blended = roi * (1 - logo_alpha) + logo_bgr.astype(np.float64) * logo_alpha
-            frame[y1:y2, x1:x2] = blended.astype(np.uint8)
-            writer.write(frame)
-            frame_num += 1
-
-            if frame_num % 10 == 0:
-                elapsed = _time.time() - start_time
-                fps_actual = frame_num / max(0.1, elapsed)
-                job["progress"] = frame_num
-                job["eta"] = round((total - frame_num) / max(1, fps_actual), 1)
-
-        cap.release()
-        writer.release()
-
-        if job.get("cancel"):
-            temp_path.unlink(missing_ok=True)
-            job["eta"] = 0
-            return
-
-        # Mux audio
-        job["status"] = "muxing_audio"
-        try:
-            from moviepy import VideoFileClip
-            original = VideoFileClip(str(video_path))
-            clean = VideoFileClip(str(temp_path))
-            if original.audio is not None:
-                final = clean.with_audio(original.audio)
-                final.write_videofile(str(out_path), codec='libx264', audio_codec='aac', logger=None)
-                final.close()
-            else:
-                clean.write_videofile(str(out_path), codec='libx264', logger=None)
-            original.close()
-            clean.close()
-            temp_path.unlink(missing_ok=True)
-        except Exception:
-            if temp_path.exists():
-                shutil.move(str(temp_path), str(out_path))
-
-        job["status"] = "done"
-        job["progress"] = total
-        job["output"] = out_name
-        job["eta"] = 0
-
-    except Exception as e:
-        job["status"] = "error"
-        job["error"] = str(e)
-
-
-# ── Batch Video Processing ──────────────────────────────────────────────────
-
-@app.route("/api/video/batch-upload", methods=["POST"])
-def batch_video_upload():
-    """Upload multiple video files."""
-    files = request.files.getlist("files")
-    filenames = []
-    for f in files:
-        fname = secure_filename(f.filename)
-        if fname and Path(fname).suffix.lower() in ALLOWED_VIDEO_EXTS:
-            f.save(str(VIDEO_DIR / fname))
-            filenames.append(fname)
-    return jsonify({"ok": True, "files": filenames})
 
 
 # ── Video Logo Removal ──────────────────────────────────────────────────────

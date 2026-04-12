@@ -83,12 +83,8 @@
   .btn-danger:hover { background: rgba(248,113,113,0.25); }
 
   .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: var(--radius-xs); }
-  .btn-icon { padding: 7px; width: 34px; height: 34px; }
-  .btn-icon svg { width: 16px; height: 16px; }
-
   .btn .spinner { display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
   .btn.loading .spinner { display: inline-block; }
-  .btn.loading .btn-label { display: none; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Header / Navbar ────────────────────────────────────────────────── */
@@ -113,11 +109,6 @@
     height: 100%;
   }
   .nav-section-center { flex: 1; display: flex; justify-content: center; }
-
-  .nav-divider {
-    width: 1px; height: 24px; background: var(--glass-border);
-    margin: 0 4px; flex-shrink: 0;
-  }
 
   .logo {
     font-weight: 800; font-size: 15px; color: #fff;
@@ -150,16 +141,6 @@
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   }
 
-  .badge {
-    background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(129,140,248,0.08));
-    color: var(--accent2);
-    font-size: 10px; font-weight: 600; padding: 5px 14px;
-    border-radius: 20px;
-    border: 1px solid rgba(59,130,246,0.15);
-    letter-spacing: 0.4px; text-transform: uppercase;
-    transition: all var(--transition);
-  }
-  .badge:hover { border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.15); }
 
   /* Slide counter pill */
   .slide-pill {
@@ -669,14 +650,6 @@
   }
   .help-item strong { color: var(--text); }
 
-  /* ── OCR regions highlight ──────────────────────────────────────────── */
-  .ocr-badge {
-    display: inline-flex; align-items: center; gap: 4px;
-    background: rgba(59,130,246,0.15); color: var(--accent2);
-    font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
-    margin-left: 6px;
-  }
-
   /* ── NEW: Generic Modal ──────────────────────────────────────────────── */
   .modal-backdrop {
     position: fixed; inset: 0; z-index: 180; display: none;
@@ -696,12 +669,6 @@
     display: flex; align-items: center; gap: 8px;
   }
   .modal-card h3 svg { width: 18px; height: 18px; color: var(--accent2); }
-  .modal-close {
-    position: absolute; top: 12px; right: 14px; background: none; border: none;
-    color: var(--text3); cursor: pointer; font-size: 18px; line-height: 1;
-  }
-  .modal-close:hover { color: var(--text); }
-
   /* ── NEW: Filters panel ──────────────────────────────────────────────── */
   .filter-grid {
     display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
@@ -751,20 +718,6 @@
   .list-item .list-item-meta { font-size: 10px; color: var(--text3); }
   .list-item .list-item-actions { display: flex; gap: 4px; }
 
-  /* ── NEW: Crop overlay ───────────────────────────────────────────────── */
-  .crop-overlay {
-    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.5); z-index: 10; display: none;
-  }
-  .crop-overlay.active { display: block; }
-  .crop-rect {
-    position: absolute; border: 2px dashed var(--green);
-    background: transparent; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
-  }
-  .crop-confirm-bar {
-    position: absolute; bottom: -40px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 6px; z-index: 11;
-  }
 </style>
 </head>
 <body>
@@ -990,6 +943,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
         <span class="act-label">Upload</span>
         <input type="file" accept=".pptx" id="upload-input" onchange="uploadPPTX(this)" style="display:none">
+      </label>
+      <label class="btn-action" style="cursor:pointer" title="Bulk upload up to 10 PPTX files — remove logos and download ZIP">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M9 10l3-3 3 3"/></svg>
+        <span class="act-label">Bulk</span>
+        <input type="file" accept=".pptx" multiple id="bulk-upload-input" onchange="bulkRemoveLogo(this)" style="display:none">
       </label>
       <div class="group-sep"></div>
       <button class="btn-action" onclick="removeLogos()" title="Remove NotebookLM watermark">
@@ -3350,6 +3308,48 @@ async function uploadPPTX(input) {
   const file = input.files[0];
   if (!file) return;
   doUpload(file);
+  input.value = '';
+}
+
+async function bulkRemoveLogo(input) {
+  const files = Array.from(input.files);
+  if (!files.length) return;
+  if (files.length > 10) {
+    showToast('Maximum 10 files allowed', 'error');
+    input.value = '';
+    return;
+  }
+  const nonPptx = files.filter(f => !f.name.toLowerCase().endsWith('.pptx'));
+  if (nonPptx.length) {
+    showToast('Only .pptx files are supported', 'error');
+    input.value = '';
+    return;
+  }
+  showLoading(`Processing ${files.length} file${files.length > 1 ? 's' : ''}... Removing logos...`);
+  const form = new FormData();
+  files.forEach(f => form.append('files', f));
+  try {
+    const resp = await fetch('/api/batch/remove-logo', { method: 'POST', body: form });
+    hideLoading();
+    if (resp.ok) {
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'SlideCraft_Bulk_Cleaned.zip';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast(`Done! ${files.length} cleaned files downloaded as ZIP`, 'success');
+    } else {
+      const data = await resp.json();
+      showToast(data.error || 'Bulk processing failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Bulk processing failed: ' + e.message, 'error');
+  }
   input.value = '';
 }
 

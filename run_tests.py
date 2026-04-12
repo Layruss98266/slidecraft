@@ -211,7 +211,8 @@ test('Invalid slide number', 'get', f'{BASE}/api/slide/999')
 
 test_expect_400('Bake invalid slide (expect 400)', 'post', f'{BASE}/api/slide/999/bake')
 
-test_expect_400('Batch upload no files (expect 400)', 'post', f'{BASE}/api/batch/upload')
+# Test bulk remove-logo with no files (expect 400)
+test_expect_400('Bulk remove-logo no files (expect 400)', 'post', f'{BASE}/api/batch/remove-logo')
 
 # ═══════════════════════════════════════════════════════════════
 # REPORT
