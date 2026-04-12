@@ -90,12 +90,12 @@
   /* ── Header / Navbar ────────────────────────────────────────────────── */
   header {
     display: flex; align-items: center;
-    padding: 0 20px; height: 56px;
+    padding: 0 20px; min-height: 56px;
     background: linear-gradient(180deg, rgba(16,20,36,0.98), rgba(12,16,28,0.96));
     backdrop-filter: blur(24px);
     border-bottom: 1px solid var(--glass-border);
     flex-shrink: 0; z-index: 10;
-    position: relative;
+    position: relative; gap: 8px;
   }
   /* Top accent glow line */
   header::before {
@@ -108,7 +108,7 @@
     display: flex; align-items: center; gap: 12px;
     height: 100%;
   }
-  .nav-section-center { flex: 1; display: flex; justify-content: center; }
+  .nav-section-center { flex: 1; display: flex; justify-content: center; min-width: 0; }
 
   .logo {
     font-weight: 800; font-size: 15px; color: #fff;
@@ -167,7 +167,7 @@
   .slide-pill .pill-nav-btn svg { width: 12px; height: 12px; }
 
   /* Action button groups */
-  .header-actions { display: flex; gap: 6px; align-items: center; }
+  .header-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; overflow: visible; }
 
   .action-group {
     display: flex; gap: 3px; align-items: center;
@@ -273,12 +273,17 @@
   .canvas-empty-state .empty-btn.primary:hover { filter: brightness(1.15); }
   .canvas-empty-state .empty-btn svg { width: 14px; height: 14px; }
 
-  /* Label hidden on small widths */
-  .action-group .btn-action .act-label { }
-  @media (max-width: 1200px) {
+  /* Labels hidden on smaller screens */
+  @media (max-width: 1400px) {
     .action-group .btn-action .act-label { display: none; }
     .action-group .group-label { display: none; }
     .export-dropdown-btn .act-label { display: none; }
+    .action-group .btn-action { padding: 6px 8px; }
+    .header-actions { gap: 4px; }
+  }
+  @media (max-width: 900px) {
+    .nav-section-center { display: none; }
+    header { flex-wrap: wrap; min-height: auto; padding: 8px 12px; gap: 6px; }
   }
 
   /* ── Main Layout ───────────────────────────────────────────────────── */
