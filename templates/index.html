@@ -206,6 +206,10 @@
         <span class="logo-sub">Slide Editor</span>
       </div>
     </div>
+    <div class="deck-name" id="deck-name" title="Active deck">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+      <span class="deck-name-text" id="deck-name-text">No deck loaded</span>
+    </div>
   </div>
 
   <!-- Center: Slide navigation pill -->
@@ -262,6 +266,30 @@
           <span class="save-dot" id="save-dot"></span>
           <span class="save-check" id="save-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg></span>
         </span>
+      </button>
+    </div>
+
+    <!-- GROUP: SLIDE (structure ops) -->
+    <div class="action-group">
+      <span class="group-label">Slide</span>
+      <button class="btn-action" onclick="duplicateSlide()" title="Duplicate this slide (Ctrl+D)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        <span class="act-label">Duplicate</span>
+      </button>
+      <div class="group-sep"></div>
+      <button class="btn-action" onclick="downloadSlidePNG()" title="Download this slide as PNG">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span class="act-label">PNG</span>
+      </button>
+      <div class="group-sep"></div>
+      <button class="btn-action" onclick="printDeck()" title="Print deck (Ctrl+P)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,9 6,2 18,2 18,9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+        <span class="act-label">Print</span>
+      </button>
+      <div class="group-sep"></div>
+      <button class="btn-action reset-clean-btn" onclick="deleteSlide()" title="Delete this slide (Del)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        <span class="act-label">Delete</span>
       </button>
     </div>
 

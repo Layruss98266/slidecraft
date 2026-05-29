@@ -66,9 +66,18 @@ const container = document.getElementById('slide-container');
 // INIT
 // ══════════════════════════════════════════════════════════════════════════
 window.addEventListener('load', () => {
-  gotoSlide(1);
+  let startSlide = 1;
+  try {
+    const saved = parseInt(sessionStorage.getItem('current_slide') || '1', 10);
+    if (saved >= 1) startSlide = saved;
+    sessionStorage.removeItem('current_slide');
+  } catch (e) {}
+  const total = parseInt(document.getElementById('slide-total')?.textContent || '1', 10);
+  if (startSlide > total) startSlide = total;
+  gotoSlide(startSlide);
   setZoom(70);
   initThumbDrag();
+  refreshDeckInfo();
 });
 
 window.addEventListener('beforeunload', e => {
@@ -1816,11 +1825,22 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveCurrentSlide(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !inInput) { e.preventDefault(); copyOverlay(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !inInput) { e.preventDefault(); pasteOverlay(); return; }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'd' && !inInput) { e.preventDefault(); duplicateSelected(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'd' && !inInput) {
+    e.preventDefault();
+    if (selectedIdx >= 0) duplicateSelected();
+    else duplicateSlide();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P') && !inInput) {
+    e.preventDefault(); printDeck(); return;
+  }
 
   if (inInput) return;
 
-  if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedIdx >= 0) deleteSelected();
+    else if (e.key === 'Delete') deleteSlide();
+  }
   if (e.key === 'ArrowRight') gotoSlide(currentSlide + 1);
   if (e.key === 'ArrowLeft')  gotoSlide(currentSlide - 1);
   if (e.key === 't' || e.key === 'T') setTool('text');
@@ -3538,3 +3558,119 @@ function closeHelpModal() {
 document.getElementById('help-modal').addEventListener('click', function(e) {
   if (e.target === this) closeHelpModal();
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// DECK INFO / SLIDE STRUCTURE OPS
+// ══════════════════════════════════════════════════════════════════════════
+async function refreshDeckInfo() {
+  try {
+    const resp = await fetch('/api/deck/info');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const el = document.getElementById('deck-name');
+    const txt = document.getElementById('deck-name-text');
+    if (!el || !txt) return;
+    if (data.deck_name) {
+      txt.textContent = data.deck_name;
+      el.classList.add('has-deck');
+      el.title = data.deck_name;
+    } else {
+      txt.textContent = 'No deck loaded';
+      el.classList.remove('has-deck');
+      el.title = 'No deck loaded';
+    }
+  } catch (e) {}
+}
+
+async function duplicateSlide() {
+  if (!currentSlide) return;
+  showLoading('Duplicating slide...');
+  try {
+    const resp = await fetch(`/api/slide/${currentSlide}/duplicate`, { method: 'POST' });
+    const data = await resp.json();
+    hideLoading();
+    if (data.ok) {
+      try { sessionStorage.setItem('current_slide', String(data.new_slide || currentSlide + 1)); } catch (e) {}
+      showToast('Slide duplicated! Reloading...', 'success');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      showToast(data.error || 'Duplicate failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Duplicate failed: ' + e.message, 'error');
+  }
+}
+
+async function deleteSlide() {
+  if (!currentSlide) return;
+  const total = parseInt(document.getElementById('slide-total')?.textContent || '1', 10);
+  if (total <= 1) {
+    showToast('Cannot delete the only slide', 'error');
+    return;
+  }
+  if (!confirm(`Delete slide ${currentSlide}? This can be undone with Ctrl+Z.`)) return;
+  showLoading('Deleting slide...');
+  try {
+    const resp = await fetch(`/api/slide/${currentSlide}/delete`, { method: 'POST' });
+    const data = await resp.json();
+    hideLoading();
+    if (data.ok) {
+      const next = Math.min(currentSlide, data.num_slides);
+      try { sessionStorage.setItem('current_slide', String(next)); } catch (e) {}
+      showToast('Slide deleted! Reloading...', 'success');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      showToast(data.error || 'Delete failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Delete failed: ' + e.message, 'error');
+  }
+}
+
+function downloadSlidePNG() {
+  if (!currentSlide) return;
+  const a = document.createElement('a');
+  a.href = `/api/slide/${currentSlide}/download.png`;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function printDeck() {
+  const total = parseInt(document.getElementById('slide-total')?.textContent || '0', 10);
+  if (!total) { showToast('No slides to print', 'error'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Popup blocked — allow popups to print', 'error'); return; }
+  const imgs = [];
+  for (let i = 1; i <= total; i++) {
+    const n = String(i).padStart(2, '0');
+    imgs.push(`<div class="page"><img src="/static/slides/slide-${n}.jpg?t=${Date.now()}" /></div>`);
+  }
+  w.document.write(`<!doctype html><html><head><title>Print Deck</title>
+<style>
+  @page { size: landscape; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  .page { page-break-after: always; width: 100vw; height: 100vh;
+          display: flex; align-items: center; justify-content: center; }
+  .page:last-child { page-break-after: auto; }
+  img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  @media print { .page { width: 100%; height: 100vh; } }
+</style></head><body>${imgs.join('')}
+<script>
+  (function () {
+    var imgs = document.images, left = imgs.length;
+    if (!left) { window.print(); return; }
+    for (var i = 0; i < imgs.length; i++) {
+      if (imgs[i].complete) { if (--left === 0) setTimeout(function(){window.print();}, 200); }
+      else imgs[i].addEventListener('load', function(){ if (--left === 0) setTimeout(function(){window.print();}, 200); });
+      imgs[i].addEventListener('error', function(){ if (--left === 0) setTimeout(function(){window.print();}, 200); });
+    }
+  })();
+<\/script>
+</body></html>`);
+  w.document.close();
+}

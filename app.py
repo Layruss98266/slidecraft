@@ -142,6 +142,24 @@ def save_data(data):
     with _data_lock:
         DATA_FILE.write_text(json.dumps(data, indent=2))
 
+# ── Active deck name ────────────────────────────────────────────────────────
+
+DECK_NAME_FILE = BASE_DIR / "current_deck.txt"
+
+def _set_deck_name(name):
+    try:
+        DECK_NAME_FILE.write_text((name or "").strip()[:255])
+    except OSError:
+        pass
+
+def _get_deck_name():
+    try:
+        if DECK_NAME_FILE.exists():
+            return DECK_NAME_FILE.read_text().strip()
+    except OSError:
+        pass
+    return ""
+
 # ── NotebookLM Logo Removal ─────────────────────────────────────────────────
 
 # Logo region at 1376×768 source resolution: bottom-right 140×25 px.
@@ -314,7 +332,9 @@ def upload_pptx():
     except Exception as e:
         return jsonify({"error": f"Processing failed: {e}"}), 500
 
-    return jsonify({"ok": True, "num_slides": len(_get_slide_files())})
+    _set_deck_name(f.filename)
+    return jsonify({"ok": True, "num_slides": len(_get_slide_files()),
+                    "deck_name": _get_deck_name()})
 
 
 @app.route("/api/remove-logo", methods=["POST"])
@@ -1192,9 +1212,203 @@ def reorder_slides():
         new_data[str(new_idx)] = data.get(str(old_idx), {"overlays": [], "notes": ""})
     save_data(new_data)
 
+    # Reorder comments in lock-step with slides
+    with _data_lock:
+        if COMMENTS_FILE.exists():
+            try:
+                cdata = json.loads(COMMENTS_FILE.read_text())
+                new_comments = {}
+                for new_idx, old_idx in enumerate(new_order, 1):
+                    if str(old_idx) in cdata:
+                        new_comments[str(new_idx)] = cdata[str(old_idx)]
+                COMMENTS_FILE.write_text(json.dumps(new_comments, indent=2))
+            except (json.JSONDecodeError, OSError):
+                pass
+
     log_id = _log_op("reorder", text=f"Reordered {len(new_order)} slides",
                      scope="all", count=len(new_order), snapshot=snapshot)
     return jsonify({"ok": True, "snapshot": snapshot, "log_id": log_id})
+
+
+# ── Deck info / slide structure ops ─────────────────────────────────────────
+
+@app.route("/api/deck/info", methods=["GET"])
+def deck_info():
+    return jsonify({
+        "deck_name": _get_deck_name(),
+        "num_slides": len(_get_slide_files()),
+    })
+
+
+@app.route("/api/save", methods=["POST"])
+def manual_save_checkpoint():
+    """Drop a manual snapshot into the history chain."""
+    snapshot = _snapshot_before_destructive("save")
+    log_id = _log_op("save", text="Manual save checkpoint",
+                     scope="all", count=len(_get_slide_files()), snapshot=snapshot)
+    return jsonify({"ok": True, "snapshot": snapshot, "log_id": log_id})
+
+
+@app.route("/api/slide/<int:num>/delete", methods=["POST"])
+def delete_slide(num):
+    """Delete a single slide, renumbering subsequent slides and rekeying
+    overlay data + comments to stay aligned."""
+    import copy as _copy
+    slide_files = _get_slide_files()
+    total = len(slide_files)
+    if num < 1 or num > total:
+        return jsonify({"error": "Invalid slide"}), 400
+    if total <= 1:
+        return jsonify({"error": "Cannot delete the only slide"}), 400
+
+    snapshot = _snapshot_before_destructive("delete")
+    try:
+        target = SLIDES_DIR / f"slide-{num:02d}.jpg"
+        if target.exists():
+            target.unlink()
+        # Shift subsequent files down by one
+        for i in range(num + 1, total + 1):
+            src = SLIDES_DIR / f"slide-{i:02d}.jpg"
+            dst = SLIDES_DIR / f"slide-{i-1:02d}.jpg"
+            if src.exists():
+                shutil.move(str(src), str(dst))
+
+        # Rekey slide_data.json
+        with _data_lock:
+            data = json.loads(DATA_FILE.read_text()) if DATA_FILE.exists() else {}
+            new_data = {}
+            for k, v in data.items():
+                try:
+                    idx = int(k)
+                except (TypeError, ValueError):
+                    continue
+                if idx < num:
+                    new_data[str(idx)] = v
+                elif idx == num:
+                    continue
+                else:
+                    new_data[str(idx - 1)] = v
+            DATA_FILE.write_text(json.dumps(new_data, indent=2))
+
+        # Rekey comments.json
+        with _data_lock:
+            if COMMENTS_FILE.exists():
+                try:
+                    cdata = json.loads(COMMENTS_FILE.read_text())
+                    new_c = {}
+                    for k, v in cdata.items():
+                        try:
+                            idx = int(k)
+                        except (TypeError, ValueError):
+                            continue
+                        if idx < num:
+                            new_c[str(idx)] = v
+                        elif idx == num:
+                            continue
+                        else:
+                            new_c[str(idx - 1)] = v
+                    COMMENTS_FILE.write_text(json.dumps(new_c, indent=2))
+                except (json.JSONDecodeError, OSError):
+                    pass
+    except Exception as e:
+        return jsonify({"error": f"Delete failed: {e}"}), 500
+
+    log_id = _log_op("delete-slide",
+                     text=f"Deleted slide {num}",
+                     scope="all", count=1, snapshot=snapshot)
+    return jsonify({"ok": True, "num_slides": len(_get_slide_files()),
+                    "snapshot": snapshot, "log_id": log_id})
+
+
+@app.route("/api/slide/<int:num>/duplicate", methods=["POST"])
+def duplicate_slide(num):
+    """Duplicate a slide, inserting the clone at num+1 and shifting subsequent
+    slides up by one. Overlay data and comments are deep-copied to the new index."""
+    import copy as _copy
+    slide_files = _get_slide_files()
+    total = len(slide_files)
+    if num < 1 or num > total:
+        return jsonify({"error": "Invalid slide"}), 400
+
+    snapshot = _snapshot_before_destructive("duplicate")
+    try:
+        # Shift slides num+1..total up by one
+        for i in range(total, num, -1):
+            src = SLIDES_DIR / f"slide-{i:02d}.jpg"
+            dst = SLIDES_DIR / f"slide-{i+1:02d}.jpg"
+            if src.exists():
+                shutil.move(str(src), str(dst))
+        # Copy the target file to num+1
+        src = SLIDES_DIR / f"slide-{num:02d}.jpg"
+        dst = SLIDES_DIR / f"slide-{num+1:02d}.jpg"
+        shutil.copy2(str(src), str(dst))
+
+        # Rekey slide_data.json
+        with _data_lock:
+            data = json.loads(DATA_FILE.read_text()) if DATA_FILE.exists() else {}
+            new_data = {}
+            for k, v in data.items():
+                try:
+                    idx = int(k)
+                except (TypeError, ValueError):
+                    continue
+                if idx <= num:
+                    new_data[str(idx)] = v
+                else:
+                    new_data[str(idx + 1)] = v
+            if str(num) in data:
+                new_data[str(num + 1)] = _copy.deepcopy(data[str(num)])
+            else:
+                new_data[str(num + 1)] = {"overlays": [], "notes": ""}
+            DATA_FILE.write_text(json.dumps(new_data, indent=2))
+
+        # Rekey comments.json
+        with _data_lock:
+            if COMMENTS_FILE.exists():
+                try:
+                    cdata = json.loads(COMMENTS_FILE.read_text())
+                    new_c = {}
+                    for k, v in cdata.items():
+                        try:
+                            idx = int(k)
+                        except (TypeError, ValueError):
+                            continue
+                        if idx <= num:
+                            new_c[str(idx)] = v
+                        else:
+                            new_c[str(idx + 1)] = v
+                    if str(num) in cdata:
+                        new_c[str(num + 1)] = _copy.deepcopy(cdata[str(num)])
+                    COMMENTS_FILE.write_text(json.dumps(new_c, indent=2))
+                except (json.JSONDecodeError, OSError):
+                    pass
+    except Exception as e:
+        return jsonify({"error": f"Duplicate failed: {e}"}), 500
+
+    log_id = _log_op("duplicate-slide",
+                     text=f"Duplicated slide {num}",
+                     scope="all", count=1, snapshot=snapshot)
+    return jsonify({"ok": True, "num_slides": len(_get_slide_files()),
+                    "new_slide": num + 1,
+                    "snapshot": snapshot, "log_id": log_id})
+
+
+@app.route("/api/slide/<int:num>/download.png", methods=["GET"])
+def download_slide_png(num):
+    """Convert the slide JPG to PNG and serve as an attachment."""
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide"}), 400
+    src = SLIDES_DIR / f"slide-{num:02d}.jpg"
+    if not src.exists():
+        return jsonify({"error": "Slide not found"}), 404
+    buf = io.BytesIO()
+    Image.open(src).convert("RGB").save(buf, "PNG")
+    buf.seek(0)
+    deck = _get_deck_name() or "slide"
+    base = re.sub(r"[^A-Za-z0-9_\-]", "_", Path(deck).stem)[:60] or "slide"
+    return send_file(buf, mimetype="image/png", as_attachment=True,
+                     download_name=f"{base}-slide-{num:02d}.png")
 
 
 # ── PDF export route ────────────────────────────────────────────────────────
@@ -1758,6 +1972,10 @@ def _restore_from_snapshot(version_dir: Path, *, scope: str, slide_num=None):
         if data_file.exists():
             with _data_lock:
                 DATA_FILE.write_text(data_file.read_text())
+        comments_snap = version_dir / "comments.json"
+        if comments_snap.exists():
+            with _data_lock:
+                COMMENTS_FILE.write_text(comments_snap.read_text())
 
 
 def _take_redo_snapshot():
@@ -1797,6 +2015,8 @@ def _snapshot_before_destructive(reason="watermark"):
             shutil.copy2(str(sf), str(version_dir / sf.name))
         if DATA_FILE.exists():
             shutil.copy2(str(DATA_FILE), str(version_dir / "data.json"))
+        if COMMENTS_FILE.exists():
+            shutil.copy2(str(COMMENTS_FILE), str(version_dir / "comments.json"))
         (version_dir / "_reason.txt").write_text(reason)
         return ts
     except OSError:
