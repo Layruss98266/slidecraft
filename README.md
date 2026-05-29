@@ -201,18 +201,99 @@ Built with Flask + vanilla JS. No React, no build step. Just `python app.py` and
 **Fastest path** — see [INSTALL.md](INSTALL.md) for the full cross-platform guide. TL;DR:
 
 ```bash
+# Clone the repo from GitHub to your machine
 git clone https://github.com/Layruss98266/slidecraft.git
+
+# Move into the project folder
 cd slidecraft
 
-# One-command launcher (creates venv, installs deps, runs server)
-./run.sh              # macOS / Linux
-# or run.bat          # Windows (cmd.exe)
+# Run the launcher for your OS — it will:
+#   1. Create a Python virtual environment in .venv/
+#   2. Install everything listed in requirements.txt
+#   3. Warn you if LibreOffice isn't installed
+#   4. Start the Flask server on http://127.0.0.1:5050
+./run.sh              # macOS / Linux  (chmod +x run.sh once if needed)
+# or run.bat          # Windows (cmd.exe / double-click)
 # or .\run.ps1        # Windows (PowerShell)
 ```
 
 The launcher creates `.venv/`, installs `requirements.txt`, warns if LibreOffice isn't installed, then starts the server at http://127.0.0.1:5050. First run takes ~3 min (LibreOffice optional but strongly recommended for high-fidelity slide rendering).
 
-The step-by-step instructions below cover the same thing manually if you'd rather not use the launcher.
+---
+
+## How to Run
+
+### Option A — one-command launcher (recommended)
+
+After the install steps above, just re-run the launcher whenever you want to start the editor. It's idempotent — it skips the venv/install steps if they've already been done.
+
+```bash
+# macOS / Linux
+./run.sh
+```
+
+```cmd
+:: Windows (cmd.exe)
+run.bat
+```
+
+```powershell
+# Windows (PowerShell)
+.\run.ps1
+```
+
+Then open **http://127.0.0.1:5050** in any modern browser (Chrome, Edge, Firefox, Safari).
+
+### Option B — manual (if you already have the venv set up)
+
+```bash
+# 1. Activate the virtual environment
+source .venv/bin/activate        # macOS / Linux
+.venv\Scripts\Activate.ps1       # Windows PowerShell
+.venv\Scripts\activate.bat       # Windows cmd.exe
+
+# 2. Start the server (Ctrl+C to stop)
+python app.py
+```
+
+### Configuration via environment variables
+
+All optional — sensible defaults if unset.
+
+```bash
+# Bind on all interfaces so other machines on your LAN can reach the editor.
+# WARNING: there's no built-in auth — only do this on a trusted network.
+HOST=0.0.0.0 python app.py
+
+# Use a different port (e.g. if 5050 is taken)
+PORT=8080 python app.py
+
+# Allow larger uploads (default is 60 MB total per request)
+MAX_UPLOAD_MB=200 python app.py
+
+# Combine multiple
+HOST=0.0.0.0 PORT=8080 MAX_UPLOAD_MB=200 python app.py
+```
+
+On Windows PowerShell use `$env:HOST = "0.0.0.0"; python app.py` instead.
+
+See [INSTALL.md](INSTALL.md#configuration-via-environment-variables) for the full list.
+
+### Stopping the server
+
+Press **Ctrl+C** in the terminal where it's running. State on disk (uploaded PPTX, slide images, history snapshots) is preserved — the next start picks up where you left off.
+
+### Typical first-run flow
+
+```
+1. Run the launcher                        →  server listens on :5050
+2. Open http://127.0.0.1:5050 in a browser →  empty editor
+3. Click "Upload" and pick a .pptx file    →  slides appear in the strip
+4. Edit / OCR / watermark / filter / etc.  →  every change auto-saves
+5. Click "Export" → "PowerPoint (PPTX)"    →  download the edited deck
+```
+
+The first slide upload triggers a one-time ~64 MB EasyOCR model download to `~/.EasyOCR/`. After that, OCR is instant.
 
 ---
 
