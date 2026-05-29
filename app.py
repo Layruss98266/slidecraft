@@ -47,11 +47,30 @@ except ImportError:
     pass
 
 app = Flask(__name__)
-# Default upload cap is 60 MB (covers typical PPTX + image overlays).
-# Video uploads bypass via streaming-friendly endpoint, capped separately below.
-app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_MB', 60)) * 1024 * 1024
+# Default upload cap is 1 GB so the bulk endpoint comfortably accepts 20 PPTX
+# files even when individual files run heavy (~30-50 MB with embedded video).
+# For a stricter single-file-only deployment, set MAX_UPLOAD_MB=60 in the env.
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_MB', 1024)) * 1024 * 1024
 # Cap base64 image-overlay payloads embedded in JSON requests (bytes after decode)
 MAX_OVERLAY_IMG_BYTES = 8 * 1024 * 1024  # 8 MB decoded
+
+
+# Friendly 413 handler so the bulk uploader can show a useful toast instead of
+# Flask's default HTML page.
+from werkzeug.exceptions import RequestEntityTooLarge
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def _too_large(e):
+    cap_mb = app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
+    return jsonify({
+        "error": (
+            f"Upload too large — combined size exceeds {cap_mb} MB cap. "
+            f"Re-run with MAX_UPLOAD_MB=500 (or larger) to allow it, "
+            f"or split your batch into smaller groups."
+        ),
+        "cap_mb": cap_mb,
+    }), 413
 
 BASE_DIR   = Path(__file__).parent
 SLIDES_DIR = BASE_DIR / "static" / "slides"

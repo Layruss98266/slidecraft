@@ -113,7 +113,7 @@ sudo dnf install python3 python3-pip libreoffice git
 |---|---|---|
 | `HOST` | `127.0.0.1` | Bind address. Set to `0.0.0.0` to expose on LAN (warning printed — there's no built-in auth). |
 | `PORT` | `5050` | HTTP port. |
-| `MAX_UPLOAD_MB` | `60` | Max request body size in MB. Raise for very large PPTX batches. |
+| `MAX_UPLOAD_MB` | `1024` | Max request body size in MB. The default (1 GB) comfortably fits a bulk batch of 20 PPTX files even with embedded media. Lower (e.g. 60) if you want stricter single-file-only limits. |
 | `EXPORT_TTL_SECONDS` | `86400` | How long exported files in `exports/` live before being cleaned up. |
 | `FLASK_DEBUG` | `false` | Set to `true` for live reload and verbose tracebacks (dev only). |
 

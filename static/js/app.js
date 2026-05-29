@@ -1994,7 +1994,8 @@ async function bulkRemoveLogo(input) {
     input.value = '';
     return;
   }
-  showLoading(`Processing ${files.length} file${files.length > 1 ? 's' : ''}... Removing logos...`);
+  const totalMB = files.reduce((s, f) => s + f.size, 0) / (1024 * 1024);
+  showLoading(`Processing ${files.length} file${files.length > 1 ? 's' : ''} (${totalMB.toFixed(0)} MB)... Removing logos...`);
   const form = new FormData();
   files.forEach(f => form.append('files', f));
   try {
@@ -2011,9 +2012,21 @@ async function bulkRemoveLogo(input) {
       a.remove();
       URL.revokeObjectURL(url);
       showToast(`Done! ${files.length} cleaned files downloaded as ZIP`, 'success');
+    } else if (resp.status === 413) {
+      // Server's friendly 413 handler returns JSON with a useful message
+      let msg = `Upload too large (${totalMB.toFixed(0)} MB).`;
+      try {
+        const data = await resp.json();
+        if (data.error) msg = data.error;
+      } catch (e) {}
+      showToast(msg, 'error', 8000);
     } else {
-      const data = await resp.json();
-      showToast(data.error || 'Bulk processing failed', 'error');
+      let msg = 'Bulk processing failed';
+      try {
+        const data = await resp.json();
+        if (data.error) msg = data.error;
+      } catch (e) {}
+      showToast(msg, 'error');
     }
   } catch (e) {
     hideLoading();
