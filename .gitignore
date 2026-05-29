@@ -20,10 +20,19 @@ env/
 
 # App data (auto-generated, user-specific)
 slide_data.json
+comments.json
+watermarks_applied.json
+cleared_orphans_before.txt
 static/slides/*.jpg
+static/slides/_originals/
 uploads/
 exports/
 videos/
+history/
+templates_saved/
+
+# Claude/agent local config
+.claude/
 
 # EasyOCR models (large, downloaded on first use)
 ~/.EasyOCR/
