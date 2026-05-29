@@ -3338,6 +3338,50 @@ def download_video(filename):
     return send_file(str(fpath), as_attachment=True, download_name=safe_name)
 
 
+# ── Feature modules (registered after all core routes) ──────────────────────
+_FEATURE_CTX = {
+    "BASE_DIR":     BASE_DIR,
+    "SLIDES_DIR":   SLIDES_DIR,
+    "ORIGINALS_DIR": ORIGINALS_DIR,
+    "DATA_FILE":    DATA_FILE,
+    "UPLOAD_DIR":   UPLOAD_DIR,
+    "EXPORT_DIR":   EXPORT_DIR,
+    "VIDEO_DIR":    VIDEO_DIR,
+    "load_data":    load_data,
+    "save_data":    save_data,
+    "_get_slide_files": _get_slide_files,
+    "_safe_name":   _safe_name,
+    "_data_lock":   _data_lock,
+    "_set_deck_name": _set_deck_name,
+    "_get_deck_name": _get_deck_name,
+    "MAX_OVERLAY_IMG_BYTES": MAX_OVERLAY_IMG_BYTES,
+}
+
+try:
+    from app_features import register_feature_routes
+    register_feature_routes(app, _FEATURE_CTX)
+except ImportError as _e:
+    print(f"[features] not loaded: {_e}", file=sys.stderr)
+
+try:
+    from app_ai import register_ai_routes
+    register_ai_routes(app, _FEATURE_CTX)
+except ImportError as _e:
+    print(f"[ai] not loaded: {_e}", file=sys.stderr)
+
+try:
+    from app_auth import register_auth_routes
+    register_auth_routes(app, _FEATURE_CTX)
+except ImportError as _e:
+    print(f"[auth] not loaded: {_e}", file=sys.stderr)
+
+try:
+    from app_gslides import register_gslides_routes
+    register_gslides_routes(app, _FEATURE_CTX)
+except ImportError as _e:
+    print(f"[gslides] not loaded: {_e}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     # Bind to localhost by default. Set HOST=0.0.0.0 to expose on LAN (no auth!).
     host = os.environ.get('HOST', '127.0.0.1')

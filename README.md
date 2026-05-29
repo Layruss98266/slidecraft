@@ -41,6 +41,35 @@ Built with Flask + vanilla JS. No React, no build step. Just `python app.py` and
 
 ---
 
+## What's New (v2)
+
+| Feature | Setup | What it does |
+|---|---|---|
+| **High-contrast theme** | none | Toggle with **Ctrl+Shift+H** — accessible black/yellow palette |
+| **Master slide / theme** | none | Header, footer, page numbers, brand colors applied across the deck |
+| **Color palette extraction** | none | Auto-extracts 8 dominant colors from each slide — click to copy hex |
+| **Multi-select + align** | none | **Shift-click** overlays; floating bar gives Align L/C/R/T/B + Distribute |
+| **Guides / rulers** | none | **Ctrl+'** toggles center + rule-of-thirds guides |
+| **Auto-save** | none | Heartbeat to server every 8 s on dirty state — survives crashes |
+| **Laser pointer** | none | Press **L** in presentation mode for a red laser dot |
+| **Slide transitions** | none | Fade / slide / zoom between slides in presentation mode |
+| **Thumbnail virtualization** | none | Lazy-loads thumbnails for decks > 50 slides |
+| **Speaker notes API** | none | Notes pane is server-synced (auto-loads per slide) |
+| **`.slidecraft` portable archive** | none | One-file export/import (slides + overlays + comments + master) |
+| **Video → slides** | none | Drop a video → scene-change detection splits it into slides |
+| **YouTube / Vimeo / Loom embed** | none | Embed a URL as an overlay — plays in presentation mode |
+| **Per-slide audio narration** | none | Upload MP3/WAV — auto-plays in presentation mode |
+| **Background remover** | `pip install rembg` | Strips background from any image overlay |
+| **AI Rewrite / Translate / Alt-text / Slides** | install [Ollama](https://ollama.com) | Local LLM — no key, no fees, no data leaves your machine |
+| **Google OAuth login + share links** | Google Cloud OAuth, see [SETUP.md](SETUP.md) | Locks the app to your Google account; generates read-only share URLs |
+| **Google Slides export** | Google Cloud + refresh token, see [SETUP.md](SETUP.md) | Uploads the deck to your Drive as a real Google Slides presentation |
+| **Docker deployment** | `docker compose up` | One command — bundles LibreOffice + ffmpeg + fonts |
+| **Pytest suite** | `pip install -r requirements-dev.txt` | `tests/test_features.py` covers the new endpoints |
+
+See **[SETUP.md](SETUP.md)** for the integrations that need external services.
+
+---
+
 ## Features at a Glance (40+)
 
 ### Drawing & Shape Tools
