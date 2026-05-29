@@ -84,7 +84,9 @@ def _cleanup_old_exports():
 SLIDE_W_PX, SLIDE_H_PX = 2134, 1200   # actual JPG pixel dimensions
 
 # Lock for file-based persistence (slide_data.json, comments.json)
-_data_lock = threading.Lock()
+# RLock (reentrant) so nested critical sections — e.g. ops_undo holds the lock
+# while calling _restore_from_snapshot, which also acquires it — don't deadlock.
+_data_lock = threading.RLock()
 
 ALLOWED_VIDEO_EXTS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv'}
 ALLOWED_IMAGE_FORMATS = {'PNG', 'JPEG', 'GIF', 'WEBP', 'BMP'}
@@ -299,8 +301,16 @@ def upload_pptx():
 @app.route("/api/remove-logo", methods=["POST"])
 def remove_logo_from_existing():
     """Remove NotebookLM logo from all currently loaded slide images."""
-    remove_logos_batch(sorted(SLIDES_DIR.glob("slide-*.jpg")))
-    return jsonify({"ok": True})
+    slides = sorted(SLIDES_DIR.glob("slide-*.jpg"))
+    if not slides:
+        return jsonify({"ok": True, "count": 0})
+    snapshot = _snapshot_before_destructive("remove-logo")
+    remove_logos_batch(slides)
+    log_id = _log_op("remove-logo",
+                     text=f"Removed NotebookLM logo from {len(slides)} slide(s)",
+                     scope="all", count=len(slides), snapshot=snapshot)
+    return jsonify({"ok": True, "count": len(slides),
+                    "snapshot": snapshot, "log_id": log_id})
 
 
 @app.route("/api/slide/<int:num>/reset", methods=["POST"])
@@ -320,6 +330,49 @@ def reset_slide(num):
         data[str(num)] = {"overlays": [], "notes": data.get(str(num), {}).get("notes", "")}
         DATA_FILE.write_text(json.dumps(data, indent=2))
     return jsonify({"ok": True})
+
+
+@app.route("/api/slide/<int:num>/inpaint-region", methods=["POST"])
+def inpaint_region(num):
+    """Inpaint (erase) a normalised {x,y,w,h} region of a slide using
+    cv2.INPAINT_TELEA. Used by the OCR edit flow to remove the original text
+    pixels while preserving the surrounding background gradient/texture."""
+    import cv2
+    import numpy as np
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide"}), 400
+    payload = _ensure_dict(request.json)
+    try:
+        rx = float(payload.get("x", 0))
+        ry = float(payload.get("y", 0))
+        rw = float(payload.get("w", 0))
+        rh = float(payload.get("h", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "x/y/w/h must be numeric"}), 400
+    if rw <= 0 or rh <= 0:
+        return jsonify({"error": "Region width/height must be positive"}), 400
+
+    snapshot = _snapshot_before_destructive("inpaint-region")
+    path = slide_files[num - 1]
+    img = cv2.imread(str(path))
+    if img is None:
+        return jsonify({"error": "Could not read slide image"}), 500
+    h, w = img.shape[:2]
+    # Slight outward pad so anti-aliased edges of the original glyphs are erased too
+    pad = max(2, int(min(w, h) * 0.004))
+    x1 = max(0, int(rx * w) - pad)
+    y1 = max(0, int(ry * h) - pad)
+    x2 = min(w, int((rx + rw) * w) + pad)
+    y2 = min(h, int((ry + rh) * h) + pad)
+    mask = np.zeros((h, w), dtype=np.uint8)
+    mask[y1:y2, x1:x2] = 255
+    result = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    cv2.imwrite(str(path), result, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    log_id = _log_op("inpaint-region",
+                     text=f"Erased region on slide {num} for OCR edit",
+                     scope="current", slide_num=num, snapshot=snapshot)
+    return jsonify({"ok": True, "snapshot": snapshot, "log_id": log_id})
 
 
 @app.route("/api/slide/<int:num>", methods=["POST"])
@@ -685,6 +738,7 @@ def bake_overlays(num):
     if not ovs:
         return jsonify({"ok": True, "msg": "No overlays to bake"})
 
+    snapshot = _snapshot_before_destructive("bake")
     slide_path = slide_files[num - 1]
     img = Image.open(slide_path).convert("RGBA")
     w, h = img.size
@@ -772,8 +826,15 @@ def bake_overlays(num):
                 line_h = int(font_size * line_height_mul)
 
             fill_color = (r, g, b, int(opacity*255))
-            ty = y + 8
             align = ov.get("align", "left")
+            v_align = ov.get("verticalAlign", "top")
+            total_text_h = max(0, len(lines) * line_h)
+            if v_align == "center":
+                ty = y + max(0, (oh - total_text_h) // 2)
+            elif v_align == "bottom":
+                ty = y + max(0, oh - total_text_h - 8)
+            else:
+                ty = y + 8
 
             sr, sg, sb = shadow_color if has_shadow else (0, 0, 0)
             olr, olg, olb = outline_color if has_outline else (0, 0, 0)
@@ -844,7 +905,9 @@ def bake_overlays(num):
     data[str(num)] = {"overlays": [], "notes": slide_data.get("notes", "")}
     save_data(data)
 
-    return jsonify({"ok": True})
+    log_id = _log_op("bake", text=f"Bake {len(ovs)} overlays on slide {num}",
+                     scope="current", slide_num=num, snapshot=snapshot)
+    return jsonify({"ok": True, "snapshot": snapshot, "log_id": log_id})
 
 
 # ── OCR Route ───────────────────────────────────────────────────────────────
@@ -993,7 +1056,55 @@ def sample_color(num):
     else:
         font_weight = "normal"
 
-    return jsonify({"color": bg_hex, "textColor": txt_hex, "fontWeight": font_weight})
+    # --- Alignment: horizontal centre of mass of ink pixels in the region ---
+    # Compute mean x of all "ink" pixels (luminance distance from bg > threshold)
+    align = "left"
+    cap_height_px = max(8, int(rh * 0.7))
+    is_italic = False
+    try:
+        import numpy as np
+        arr = np.array(region, dtype=np.int16)
+        lum = 0.299 * arr[..., 0] + 0.587 * arr[..., 1] + 0.114 * arr[..., 2]
+        ink_mask = np.abs(lum - bg_lum) > 60
+        if ink_mask.sum() > 0:
+            # Horizontal centre of mass — normalise to 0..1 across the region width.
+            xs = np.where(ink_mask)[1]
+            ys = np.where(ink_mask)[0]
+            cx_norm = xs.mean() / max(1, rw)
+            if cx_norm < 0.4:
+                align = "left"
+            elif cx_norm > 0.6:
+                align = "right"
+            else:
+                align = "center"
+            # Tight cap height — vertical extent of ink, minus internal whitespace.
+            ink_y_min, ink_y_max = int(ys.min()), int(ys.max())
+            tight_h = max(1, ink_y_max - ink_y_min + 1)
+            # Cap height is ~70% of glyph bounding box for typical fonts; the ink
+            # vertical extent already excludes top/bottom whitespace, so use it directly.
+            cap_height_px = max(8, tight_h)
+            # Italic detection: compare horizontal position of ink at top vs bottom
+            # of the ink band. Italic glyphs tilt right → top-row mean x > bottom-row mean x.
+            if tight_h >= 6:
+                top_band = ink_mask[ink_y_min:ink_y_min + tight_h // 3]
+                bot_band = ink_mask[ink_y_max - tight_h // 3:ink_y_max + 1]
+                if top_band.sum() > 0 and bot_band.sum() > 0:
+                    top_x = np.where(top_band)[1].mean()
+                    bot_x = np.where(bot_band)[1].mean()
+                    # >2px shift normalised by cap height = likely italic
+                    if (top_x - bot_x) > max(2, tight_h * 0.15):
+                        is_italic = True
+    except Exception:
+        pass
+
+    return jsonify({
+        "color": bg_hex,
+        "textColor": txt_hex,
+        "fontWeight": font_weight,
+        "align": align,
+        "cap_height_px": cap_height_px,
+        "is_italic": is_italic,
+    })
 
 
 # ── Image upload route ──────────────────────────────────────────────────────
@@ -1023,13 +1134,14 @@ def upload_image():
 @app.route("/api/reorder", methods=["POST"])
 def reorder_slides():
     """Reorder slide files on disk. Expects {"order": [3,1,2,...]}."""
-    payload = request.json
+    payload = _ensure_dict(request.json)
     new_order = payload.get("order", [])
     slide_files = _get_slide_files()
 
     if sorted(new_order) != list(range(1, len(slide_files) + 1)):
         return jsonify({"error": "Invalid order"}), 400
 
+    snapshot = _snapshot_before_destructive("reorder")
     tmp_dir = SLIDES_DIR / "_reorder_tmp"
     try:
         if tmp_dir.exists():
@@ -1061,7 +1173,9 @@ def reorder_slides():
         new_data[str(new_idx)] = data.get(str(old_idx), {"overlays": [], "notes": ""})
     save_data(new_data)
 
-    return jsonify({"ok": True})
+    log_id = _log_op("reorder", text=f"Reordered {len(new_order)} slides",
+                     scope="all", count=len(new_order), snapshot=snapshot)
+    return jsonify({"ok": True, "snapshot": snapshot, "log_id": log_id})
 
 
 # ── PDF export route ────────────────────────────────────────────────────────
@@ -1396,7 +1510,8 @@ def crop_slide(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = request.json
+    payload = _ensure_dict(request.json)
+    snapshot = _snapshot_before_destructive("crop")
     img = Image.open(slide_files[num - 1]).convert("RGB")
     w, h = img.size
     x1 = int(payload["x"] * w)
@@ -1407,7 +1522,9 @@ def crop_slide(num):
     # Resize back to standard dimensions
     img = img.resize((SLIDE_W_PX, SLIDE_H_PX), Image.LANCZOS)
     img.save(str(slide_files[num - 1]), quality=95)
-    return jsonify({"ok": True})
+    log_id = _log_op("crop", text=f"Crop slide {num}",
+                     scope="current", slide_num=num, snapshot=snapshot)
+    return jsonify({"ok": True, "snapshot": snapshot, "log_id": log_id})
 
 
 @app.route("/api/slide/<int:num>/rotate", methods=["POST"])
@@ -1417,12 +1534,19 @@ def rotate_slide(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    angle = int(request.json.get("angle", 90))
+    payload = _ensure_dict(request.json)
+    try:
+        angle = int(payload.get("angle", 90))
+    except (TypeError, ValueError):
+        return jsonify({"error": "angle must be an integer"}), 400
+    snapshot = _snapshot_before_destructive("rotate")
     img = Image.open(slide_files[num - 1]).convert("RGB")
     img = img.rotate(-angle, expand=True)
     img = img.resize((SLIDE_W_PX, SLIDE_H_PX), Image.LANCZOS)
     img.save(str(slide_files[num - 1]), quality=95)
-    return jsonify({"ok": True})
+    log_id = _log_op("rotate", text=f"Rotate slide {num} by {angle}°",
+                     scope="current", slide_num=num, snapshot=snapshot)
+    return jsonify({"ok": True, "snapshot": snapshot, "log_id": log_id})
 
 
 # ── QR Code Generation ──────────────────────────────────────────────────────
@@ -1512,6 +1636,24 @@ def _build_text_watermark_layer(w, h, *, text, color_rgb, opacity, position,
 
 # ── Applied watermark log ───────────────────────────────────────────────────
 WATERMARK_LOG = BASE_DIR / "watermarks_applied.json"
+# Snapshots created before this epoch time are hidden from the Applied list.
+# Bumped by POST /api/watermarks/clear-log so the user can wipe the visible
+# list without us deleting the on-disk history snapshots.
+CLEARED_ORPHANS_MARKER = BASE_DIR / "cleared_orphans_before.txt"
+
+
+def _get_cleared_orphans_before():
+    try:
+        return float(CLEARED_ORPHANS_MARKER.read_text().strip())
+    except (OSError, ValueError):
+        return 0.0
+
+
+def _set_cleared_orphans_before(t):
+    try:
+        CLEARED_ORPHANS_MARKER.write_text(str(t))
+    except OSError:
+        pass
 
 
 def _load_wm_log():
@@ -1530,6 +1672,9 @@ def _save_wm_log(entries):
 
 
 def _append_wm_log(entry):
+    """Append an op entry. A new op invalidates any undone (redo-able) entries
+    in front of it, since the timeline has just branched — those redo snapshots
+    no longer reflect a reachable future state."""
     with _data_lock:
         entries = []
         if WATERMARK_LOG.exists():
@@ -1537,11 +1682,90 @@ def _append_wm_log(entry):
                 entries = json.loads(WATERMARK_LOG.read_text())
             except (json.JSONDecodeError, OSError):
                 entries = []
+        # Drop any undone-but-not-yet-redone entries (the future was rewritten).
+        entries = [e for e in entries if not e.get("undone")]
         entries.append(entry)
         # Cap at 100 most recent
         if len(entries) > 100:
             entries = entries[-100:]
         WATERMARK_LOG.write_text(json.dumps(entries, indent=2))
+
+
+def _restore_from_snapshot(version_dir: Path, *, scope: str, slide_num=None):
+    """Restore slides + data.json from a snapshot directory, respecting scope.
+
+    scope == "current" with slide_num → only that one slide.
+    Anything else → full restore (all slides + data.json).
+
+    Raises RuntimeError if a required slide is missing or copy fails, so the
+    caller can surface a 5xx instead of silently leaving disk in a half-state.
+    """
+    data_file = version_dir / "data.json"
+    if scope == "current" and slide_num:
+        try:
+            n = int(slide_num)
+        except (TypeError, ValueError):
+            raise RuntimeError(f"Invalid slide_num: {slide_num!r}")
+        name = f"slide-{n:02d}.jpg"
+        src = version_dir / name
+        dst = SLIDES_DIR / name
+        if not src.exists():
+            raise RuntimeError(f"Snapshot missing {name}")
+        try:
+            shutil.copy2(str(src), str(dst))
+        except OSError as e:
+            raise RuntimeError(f"Copy failed for {name}: {e}") from e
+        if data_file.exists():
+            with _data_lock:
+                live = json.loads(DATA_FILE.read_text()) if DATA_FILE.exists() else {}
+                snap_data = json.loads(data_file.read_text())
+                live[str(n)] = snap_data.get(
+                    str(n), {"overlays": [], "notes": ""})
+                DATA_FILE.write_text(json.dumps(live, indent=2))
+    else:
+        snap_slides = sorted(version_dir.glob("slide-*.jpg"))
+        if not snap_slides:
+            raise RuntimeError("Snapshot contains no slide images")
+        for f in SLIDES_DIR.glob("slide-*.jpg"):
+            try:
+                f.unlink()
+            except OSError:
+                pass  # best-effort cleanup; subsequent copy will overwrite
+        for sf in snap_slides:
+            try:
+                shutil.copy2(str(sf), str(SLIDES_DIR / sf.name))
+            except OSError as e:
+                raise RuntimeError(f"Copy failed for {sf.name}: {e}") from e
+        if data_file.exists():
+            with _data_lock:
+                DATA_FILE.write_text(data_file.read_text())
+
+
+def _take_redo_snapshot():
+    """Capture the current state so a subsequent redo can restore it.
+    Reused for undo's redo-stack; tagged with reason='redo-snap' so it doesn't
+    show up in the Applied tab orphan list."""
+    return _snapshot_before_destructive("redo-snap")
+
+
+def _log_op(kind, *, text, scope, slide_num=None, count=1, snapshot=None):
+    """Append a generic destructive-operation entry to the watermark log so
+    it surfaces in the Applied tab and can be reverted via /watermarks/revert.
+    Returns the entry id (or None if snapshot is missing)."""
+    if not snapshot:
+        return None
+    entry_id = uuid.uuid4().hex[:12]
+    _append_wm_log({
+        "id": entry_id,
+        "kind": kind,
+        "text": text,
+        "scope": scope,
+        "slide_num": slide_num if scope == "current" else None,
+        "count": count,
+        "snapshot": snapshot,
+        "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+    })
+    return entry_id
 
 
 def _snapshot_before_destructive(reason="watermark"):
@@ -2010,6 +2234,7 @@ def list_applied_watermarks():
     """
     entries = _load_wm_log()
     logged_by_snapshot = {e.get("snapshot"): e for e in entries if e.get("snapshot")}
+    cleared_before = _get_cleared_orphans_before()
 
     # Scan history dirs for watermark-related snapshots
     orphans = []
@@ -2026,13 +2251,26 @@ def list_applied_watermarks():
                 reason = reason_file.read_text().strip()
             except OSError:
                 continue
-            if not reason.startswith("watermark"):
+            # Show snapshots from any tracked destructive op (watermark, filters,
+            # crop, rotate, bake, remove-logo, find-replace, reorder, load-template,
+            # restore-version). Reset snapshots are intentionally hidden — they're
+            # the snapshot taken by Reset itself, not a user op to revert.
+            if reason in ("reset-all", "redo-snap") or not reason:
+                continue
+            tracked_prefixes = ("watermark", "filters", "crop", "rotate", "bake",
+                                "remove-logo", "find-replace", "reorder",
+                                "load-template", "restore-version", "inpaint-region")
+            if not reason.startswith(tracked_prefixes):
                 continue
             try:
                 mtime = vd.stat().st_mtime
                 ts = datetime.datetime.fromtimestamp(mtime).isoformat(timespec="seconds")
             except OSError:
                 ts = ""
+                mtime = 0
+            # Skip orphans hidden by a prior "Clear log" action
+            if mtime <= cleared_before:
+                continue
             orphans.append({
                 "id": "orphan_" + vd.name,
                 "kind": "image" if "image" in reason else "text",
@@ -2047,7 +2285,9 @@ def list_applied_watermarks():
             })
 
     # Combine — newest first by timestamp
-    combined = list(entries) + orphans
+    # Hide entries that have been undone — they're no longer "currently applied".
+    visible_entries = [e for e in entries if not e.get("undone")]
+    combined = list(visible_entries) + orphans
     combined.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
 
     out = []
@@ -2169,16 +2409,123 @@ def revert_watermark(entry_id):
 
 @app.route("/api/watermarks/clear-log", methods=["POST"])
 def clear_watermark_log():
-    """Clear the applied-watermark log without touching slide images."""
+    """Clear the applied-watermark log AND hide any orphan snapshots created
+    before now. Slide images and the underlying history snapshots are NOT
+    touched — they remain available from the History modal."""
+    import time as _t
     _save_wm_log([])
+    _set_cleared_orphans_before(_t.time())
     return jsonify({"ok": True})
+
+
+# ── Unified undo / redo across all server-side ops ──────────────────────────
+
+@app.route("/api/ops/state", methods=["GET"])
+def ops_state():
+    """Return whether undo/redo are available, plus a one-line label for the
+    next action in each direction. Used by the toolbar to enable/disable
+    the Undo/Redo buttons and show a tooltip."""
+    entries = _load_wm_log()
+    last_active = None
+    last_undone = None
+    for e in entries:
+        if e.get("undone"):
+            last_undone = e
+        else:
+            last_active = e
+    return jsonify({
+        "can_undo": last_active is not None,
+        "can_redo": last_undone is not None,
+        "undo_label": (last_active and last_active.get("text")) or None,
+        "redo_label": (last_undone and last_undone.get("text")) or None,
+    })
+
+
+@app.route("/api/ops/undo", methods=["POST"])
+def ops_undo():
+    """Undo the most recent server-side op that hasn't already been undone.
+
+    Holds `_data_lock` (reentrant) across the entire sequence — find target,
+    take redo snapshot, restore pre-op snapshot, mark entry — so concurrent
+    requests can't interleave and corrupt the log.
+    """
+    with _data_lock:
+        entries = _load_wm_log()
+        target_idx = None
+        for i in range(len(entries) - 1, -1, -1):
+            if not entries[i].get("undone"):
+                target_idx = i
+                break
+        if target_idx is None:
+            return jsonify({"ok": False, "reason": "Nothing to undo"})
+
+        target = entries[target_idx]
+        snapshot_id = target.get("snapshot")
+        if not snapshot_id:
+            return jsonify({"error": "Entry has no snapshot"}), 400
+        version_dir = (HISTORY_DIR / snapshot_id).resolve()
+        if HISTORY_DIR.resolve() not in version_dir.parents:
+            return jsonify({"error": "Invalid snapshot path"}), 400
+        if not version_dir.exists():
+            return jsonify({"error": "Snapshot no longer exists"}), 404
+
+        try:
+            redo_snapshot = _take_redo_snapshot()
+            _restore_from_snapshot(version_dir, scope=target.get("scope"),
+                                   slide_num=target.get("slide_num"))
+        except (OSError, RuntimeError) as e:
+            return jsonify({"error": f"Restore failed: {e}"}), 500
+
+        entries[target_idx]["undone"] = True
+        entries[target_idx]["redo_snapshot"] = redo_snapshot
+        WATERMARK_LOG.write_text(json.dumps(entries, indent=2))
+
+    return jsonify({"ok": True, "kind": target.get("kind"),
+                    "text": target.get("text"), "id": target["id"]})
+
+
+@app.route("/api/ops/redo", methods=["POST"])
+def ops_redo():
+    """Redo the most recently undone op by restoring its `redo_snapshot`.
+    Holds `_data_lock` across the full sequence (see ops_undo)."""
+    with _data_lock:
+        entries = _load_wm_log()
+        target_idx = None
+        for i in range(len(entries) - 1, -1, -1):
+            if entries[i].get("undone"):
+                target_idx = i
+                break
+        if target_idx is None:
+            return jsonify({"ok": False, "reason": "Nothing to redo"})
+        target = entries[target_idx]
+        redo_snap = target.get("redo_snapshot")
+        if not redo_snap:
+            return jsonify({"error": "Undone entry has no redo snapshot"}), 400
+        version_dir = (HISTORY_DIR / redo_snap).resolve()
+        if HISTORY_DIR.resolve() not in version_dir.parents:
+            return jsonify({"error": "Invalid redo snapshot path"}), 400
+        if not version_dir.exists():
+            return jsonify({"error": "Redo snapshot no longer exists"}), 404
+
+        try:
+            _restore_from_snapshot(version_dir, scope=target.get("scope"),
+                                   slide_num=target.get("slide_num"))
+        except (OSError, RuntimeError) as e:
+            return jsonify({"error": f"Restore failed: {e}"}), 500
+
+        entries[target_idx]["undone"] = False
+        entries[target_idx].pop("redo_snapshot", None)
+        WATERMARK_LOG.write_text(json.dumps(entries, indent=2))
+
+    return jsonify({"ok": True, "kind": target.get("kind"),
+                    "text": target.get("text"), "id": target["id"]})
 
 
 # ── Batch Processing ────────────────────────────────────────────────────────
 
 @app.route("/api/batch/remove-logo", methods=["POST"])
 def batch_remove_logo():
-    """Upload up to 10 PPTX files, remove logos from all slides in each,
+    """Upload up to 20 PPTX files, remove logos from all slides in each,
     and return a ZIP containing the cleaned PPTX files."""
     _cleanup_old_exports()
     import zipfile, uuid, tempfile
@@ -2190,8 +2537,8 @@ def batch_remove_logo():
     pptx_files = [f for f in files if f.filename and f.filename.lower().endswith(".pptx")]
     if not pptx_files:
         return jsonify({"error": "No .pptx files found"}), 400
-    if len(pptx_files) > 10:
-        return jsonify({"error": "Maximum 10 files allowed"}), 400
+    if len(pptx_files) > 20:
+        return jsonify({"error": "Maximum 20 files allowed"}), 400
 
     tmp_dir = Path(tempfile.mkdtemp())
     results = []
@@ -2319,6 +2666,8 @@ def load_template():
     if not meta_file.exists():
         return jsonify({"error": "Template not found"}), 404
 
+    snapshot = _snapshot_before_destructive("load-template")
+
     # Clear current slides
     for f in SLIDES_DIR.glob("slide-*.jpg"):
         f.unlink()
@@ -2331,7 +2680,11 @@ def load_template():
     meta = json.loads(meta_file.read_text())
     save_data(meta.get("data", {}))
 
-    return jsonify({"ok": True, "slides": len(_get_slide_files())})
+    slide_count = len(_get_slide_files())
+    log_id = _log_op("load-template", text=f"Loaded template '{name}'",
+                     scope="all", count=slide_count, snapshot=snapshot)
+    return jsonify({"ok": True, "slides": slide_count,
+                    "snapshot": snapshot, "log_id": log_id})
 
 
 @app.route("/api/templates/delete", methods=["POST"])
@@ -2399,6 +2752,7 @@ def restore_version():
     if not version_dir.exists() or version_dir == HISTORY_DIR.resolve():
         return jsonify({"error": "Version not found"}), 404
 
+    snapshot = _snapshot_before_destructive("restore-version")
     for f in SLIDES_DIR.glob("slide-*.jpg"):
         f.unlink()
     for sf in sorted(version_dir.glob("slide-*.jpg")):
@@ -2408,7 +2762,11 @@ def restore_version():
     if data_file.exists():
         save_data(json.loads(data_file.read_text()))
 
-    return jsonify({"ok": True, "slides": len(_get_slide_files())})
+    slide_count = len(_get_slide_files())
+    log_id = _log_op("restore-version", text=f"Restored version '{raw}'",
+                     scope="all", count=slide_count, snapshot=snapshot)
+    return jsonify({"ok": True, "slides": slide_count,
+                    "snapshot": snapshot, "log_id": log_id})
 
 
 # ── Comments / Annotations ──────────────────────────────────────────────────
@@ -2495,6 +2853,7 @@ def find_replace():
     if not find_text:
         return jsonify({"error": "No search text"}), 400
 
+    snapshot = _snapshot_before_destructive("find-replace")
     count = 0
     with _data_lock:
         data = json.loads(DATA_FILE.read_text()) if DATA_FILE.exists() else {}
@@ -2504,7 +2863,11 @@ def find_replace():
                     ov["text"] = ov["text"].replace(find_text, replace_text)
                     count += 1
         DATA_FILE.write_text(json.dumps(data, indent=2))
-    return jsonify({"ok": True, "replacements": count})
+    log_id = _log_op("find-replace",
+                     text=f"Replaced {count} '{find_text}' → '{replace_text}'",
+                     scope="all", count=count, snapshot=snapshot)
+    return jsonify({"ok": True, "replacements": count,
+                    "snapshot": snapshot, "log_id": log_id})
 
 
 # ── Video Logo Removal ──────────────────────────────────────────────────────

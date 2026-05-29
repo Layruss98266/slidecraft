@@ -154,6 +154,284 @@ def test_filters_chain_invalid_slide(app_with_slides):
     assert r.status_code == 400
 
 
+# ── Snapshot+log parity for the 8 destructive routes ────────────────────────
+
+def test_crop_slide_logs_and_is_revertable(app_with_slides):
+    client, app_module = app_with_slides
+    before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    r = client.post("/api/slide/1/crop", json={"x": 0.1, "y": 0.1, "w": 0.6, "h": 0.6})
+    assert r.status_code == 200
+    log_id = r.get_json()["log_id"]
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() != before
+    client.post(f"/api/watermarks/revert/{log_id}")
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == before
+
+
+def test_rotate_slide_logs_and_is_revertable(app_with_slides):
+    client, app_module = app_with_slides
+    before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    r = client.post("/api/slide/1/rotate", json={"angle": 90})
+    log_id = r.get_json()["log_id"]
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() != before
+    client.post(f"/api/watermarks/revert/{log_id}")
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == before
+
+
+def test_bake_overlays_logs_and_is_revertable(app_with_slides):
+    client, app_module = app_with_slides
+    # Plant an overlay so bake has something to do
+    client.post("/api/slide/1", json={
+        "overlays": [{"type": "text", "text": "HELLO", "x": 0.1, "y": 0.1,
+                       "w": 0.3, "h": 0.08, "fontSize": 24, "color": "#ff0000"}],
+        "notes": "",
+    })
+    before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    r = client.post("/api/slide/1/bake")
+    log_id = r.get_json()["log_id"]
+    assert log_id
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() != before
+    client.post(f"/api/watermarks/revert/{log_id}")
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == before
+
+
+def test_remove_logo_logs_and_is_revertable(app_with_slides):
+    client, app_module = app_with_slides
+    before = [(app_module.SLIDES_DIR / f"slide-{i:02d}.jpg").read_bytes() for i in (1, 2, 3)]
+    r = client.post("/api/remove-logo")
+    log_id = r.get_json()["log_id"]
+    # At least one slide should have changed (the corner was rewritten)
+    after = [(app_module.SLIDES_DIR / f"slide-{i:02d}.jpg").read_bytes() for i in (1, 2, 3)]
+    assert any(b != a for b, a in zip(before, after))
+    client.post(f"/api/watermarks/revert/{log_id}")
+    restored = [(app_module.SLIDES_DIR / f"slide-{i:02d}.jpg").read_bytes() for i in (1, 2, 3)]
+    assert restored == before
+
+
+def test_find_replace_logs_and_is_revertable(app_with_slides):
+    client, app_module = app_with_slides
+    client.post("/api/slide/1", json={
+        "overlays": [{"type": "text", "text": "original", "x": 0, "y": 0, "w": 0.2, "h": 0.05}],
+        "notes": "",
+    })
+    r = client.post("/api/find-replace", json={"find": "original", "replace": "REPLACED"})
+    assert r.status_code == 200
+    log_id = r.get_json()["log_id"]
+    assert client.get("/api/slide/1").get_json()["overlays"][0]["text"] == "REPLACED"
+    client.post(f"/api/watermarks/revert/{log_id}")
+    assert client.get("/api/slide/1").get_json()["overlays"][0]["text"] == "original"
+
+
+def test_reorder_logs_and_is_revertable(app_with_slides):
+    client, app_module = app_with_slides
+    s1_before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    s3_before = (app_module.SLIDES_DIR / "slide-03.jpg").read_bytes()
+    r = client.post("/api/reorder", json={"order": [3, 2, 1]})
+    log_id = r.get_json()["log_id"]
+    # slide-01 should now be what was slide-03
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == s3_before
+    client.post(f"/api/watermarks/revert/{log_id}")
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == s1_before
+
+
+def test_load_template_logs_and_is_revertable(app_with_slides):
+    client, app_module = app_with_slides
+    s1_before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    # Save a template, mutate slides, load template back
+    client.post("/api/templates/save", json={"name": "t1"})
+    client.post("/api/slide/1/filter", json={"filter": "blur", "value": 5})
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() != s1_before
+    r = client.post("/api/templates/load", json={"name": "t1"})
+    log_id = r.get_json()["log_id"]
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == s1_before
+    # Revert load: should restore the blurred state
+    client.post(f"/api/watermarks/revert/{log_id}")
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() != s1_before
+
+
+# ── OCR style preservation infra ────────────────────────────────────────────
+
+# ── Unified Undo / Redo across server ops ─────────────────────────────────
+
+def test_ops_state_empty_initially(app_with_slides):
+    client, _ = app_with_slides
+    s = client.get("/api/ops/state").get_json()
+    assert s["can_undo"] is False
+    assert s["can_redo"] is False
+
+
+def test_ops_undo_restores_pre_action_state(app_with_slides):
+    """A filter apply → /api/ops/undo restores byte-for-byte."""
+    client, app_module = app_with_slides
+    before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    client.post("/api/slide/1/filters", json={"brightness": 1.5, "scope": "current"})
+    after_op = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    assert after_op != before
+    r = client.post("/api/ops/undo")
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == before
+    state = client.get("/api/ops/state").get_json()
+    assert state["can_undo"] is False
+    assert state["can_redo"] is True
+
+
+def test_ops_redo_reapplies_undone_state(app_with_slides):
+    """undo + redo round-trips byte-for-byte."""
+    client, app_module = app_with_slides
+    client.post("/api/slide/1/filters", json={"brightness": 0.5, "scope": "current"})
+    after_op = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    client.post("/api/ops/undo")
+    r = client.post("/api/ops/redo")
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == after_op
+    state = client.get("/api/ops/state").get_json()
+    assert state["can_undo"] is True
+    assert state["can_redo"] is False
+
+
+def test_ops_undo_with_nothing_to_undo(app_with_slides):
+    client, _ = app_with_slides
+    r = client.post("/api/ops/undo")
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is False
+
+
+def test_ops_redo_invalidated_after_new_action(app_with_slides):
+    """If user undoes a filter and then applies a different filter, the
+    original redo path is gone (the future timeline branched)."""
+    client, app_module = app_with_slides
+    client.post("/api/slide/1/filters", json={"brightness": 0.5, "scope": "current"})
+    client.post("/api/ops/undo")
+    state = client.get("/api/ops/state").get_json()
+    assert state["can_redo"] is True
+    # New action — redo invalidated
+    client.post("/api/slide/1/filters", json={"contrast": 1.5, "scope": "current"})
+    state = client.get("/api/ops/state").get_json()
+    assert state["can_redo"] is False
+
+
+def test_ops_undo_respects_per_slide_scope(app_with_slides):
+    """A scope=current op should only undo that one slide, not all."""
+    client, app_module = app_with_slides
+    s1_before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    # Mutate slide 2 in some way (different filter)
+    client.post("/api/slide/2/filters", json={"brightness": 0.3, "scope": "current"})
+    s2_after_first = (app_module.SLIDES_DIR / "slide-02.jpg").read_bytes()
+    # Then mutate slide 1 with current scope
+    client.post("/api/slide/1/filters", json={"sepia": 0.5, "scope": "current"})
+    # Undo: should only restore slide 1, slide 2 stays modified
+    client.post("/api/ops/undo")
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == s1_before
+    assert (app_module.SLIDES_DIR / "slide-02.jpg").read_bytes() == s2_after_first
+
+
+def test_ops_undo_chain_multiple_levels(app_with_slides):
+    """Two ops, two undos: end up at the starting state."""
+    client, app_module = app_with_slides
+    before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    client.post("/api/slide/1/filters", json={"brightness": 0.5, "scope": "current"})
+    client.post("/api/slide/1/filters", json={"sepia": 0.4, "scope": "current"})
+    client.post("/api/ops/undo")
+    client.post("/api/ops/undo")
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == before
+    state = client.get("/api/ops/state").get_json()
+    assert state["can_undo"] is False
+    assert state["can_redo"] is True
+
+
+def test_inpaint_region_restores_jpg_and_logs(app_with_slides):
+    client, app_module = app_with_slides
+    before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    r = client.post("/api/slide/1/inpaint-region",
+                    json={"x": 0.2, "y": 0.4, "w": 0.3, "h": 0.1})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert body["log_id"]
+    assert body["snapshot"]
+    after = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    assert after != before
+    # Revertable via the watermark-log endpoint
+    client.post(f"/api/watermarks/revert/{body['log_id']}")
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == before
+
+
+def test_inpaint_region_rejects_zero_size(app_with_slides):
+    client, _ = app_with_slides
+    r = client.post("/api/slide/1/inpaint-region",
+                    json={"x": 0.1, "y": 0.1, "w": 0, "h": 0.1})
+    assert r.status_code == 400
+
+
+def test_sample_color_returns_extended_metadata(app_with_slides):
+    """Sample a region containing left-aligned dark pixels and assert the new
+    align / cap_height_px / is_italic fields are present and sensible."""
+    client, app_module = app_with_slides
+    from PIL import Image as _Img, ImageDraw
+    # Paint slide-01 with a white background and left-aligned dark text-like rect
+    p = app_module.SLIDES_DIR / "slide-01.jpg"
+    img = _Img.new("RGB", (800, 450), (240, 240, 240))
+    d = ImageDraw.Draw(img)
+    # Draw a dark horizontal bar in the left third — simulating left-aligned text
+    d.rectangle([40, 200, 240, 240], fill=(20, 20, 20))
+    img.save(str(p), "JPEG", quality=95)
+    r = client.post("/api/sample-color/1", json={"x": 0.05, "y": 0.4, "w": 0.4, "h": 0.2})
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["align"] == "left"
+    assert data["cap_height_px"] >= 8
+    assert "is_italic" in data
+
+
+def test_bake_overlays_respects_vertical_align(app_with_slides):
+    """A text overlay with verticalAlign='center' should produce different bytes
+    than one with verticalAlign='top' (the text lands in a different y-row)."""
+    client, app_module = app_with_slides
+    base = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    # Bake centered
+    client.post("/api/slide/1", json={
+        "overlays": [{"type": "text", "text": "X", "x": 0.1, "y": 0.1,
+                       "w": 0.6, "h": 0.6, "fontSize": 24, "color": "#000000",
+                       "verticalAlign": "center"}],
+        "notes": "",
+    })
+    client.post("/api/slide/1/bake")
+    centered = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    # Reset and bake top-aligned
+    client.post("/api/slide/1/reset")
+    client.post("/api/slide/1", json={
+        "overlays": [{"type": "text", "text": "X", "x": 0.1, "y": 0.1,
+                       "w": 0.6, "h": 0.6, "fontSize": 24, "color": "#000000",
+                       "verticalAlign": "top"}],
+        "notes": "",
+    })
+    client.post("/api/slide/1/bake")
+    topped = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    assert centered != topped
+    assert centered != base
+    assert topped != base
+
+
+def test_restore_version_logs_and_is_revertable(app_with_slides):
+    client, app_module = app_with_slides
+    # Make a manual snapshot
+    save_r = client.post("/api/history/save")
+    version = save_r.get_json()["version"]
+    s1_baseline = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    # Mutate slide 1
+    client.post("/api/slide/1/filter", json={"filter": "brightness", "value": 0.4})
+    mutated = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
+    assert mutated != s1_baseline
+    # Restore version
+    r = client.post("/api/history/restore", json={"version": version})
+    log_id = r.get_json()["log_id"]
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == s1_baseline
+    # Revert the restore — should bring back the mutated state
+    client.post(f"/api/watermarks/revert/{log_id}")
+    assert (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes() == mutated
+
+
 # ── Template name strict validation ─────────────────────────────────────────
 
 def test_template_rejects_path_traversal(app_with_slides):
@@ -534,22 +812,41 @@ def test_revert_scope_current_drops_later_same_slide_and_all_entries(app_with_sl
     assert all_scope["log_id"] not in surviving   # scope=all touched slide 2 — drop
 
 
-def test_applied_lists_orphan_snapshots_after_log_clear(app_with_slides):
-    """If the user clears the log (or upgrades from an older session), any
-    history snapshots tagged with a watermark-* reason should still surface
-    as 'orphan' entries that can be reverted."""
+def test_applied_lists_orphan_snapshots_from_previous_session(app_with_slides):
+    """Orphan entries (history snapshots not in the log) should surface so
+    they can be reverted — provided they're newer than the clear-log marker.
+    This simulates an older session where a watermark was applied before the
+    log file existed."""
     client, app_module = app_with_slides
     # Apply a watermark — creates log entry + history snapshot
     r = client.post("/api/watermark", json={"text": "ORPHAN-ME", "scope": "all"})
     assert r.status_code == 200
-    # Wipe just the log (not the history)
-    client.post("/api/watermarks/clear-log")
+    # Wipe ONLY the log file directly (skip the clear-log endpoint so we don't
+    # bump the cleared-before marker). This simulates an old-session snapshot.
+    app_module.WATERMARK_LOG.write_text("[]")
     entries = client.get("/api/watermarks/applied").get_json()["entries"]
     assert len(entries) == 1
     e = entries[0]
     assert e["orphan"] is True
     assert e["id"].startswith("orphan_")
     assert e["revertable"] is True
+
+
+def test_clear_log_hides_orphan_entries(app_with_slides):
+    """Pressing the Clear log button must visibly empty the Applied list —
+    orphans from history snapshots must NOT come back."""
+    client, app_module = app_with_slides
+    client.post("/api/watermark", json={"text": "HIDE-ME", "scope": "all"})
+    # Before clear: 1 entry
+    assert len(client.get("/api/watermarks/applied").get_json()["entries"]) == 1
+    r = client.post("/api/watermarks/clear-log")
+    assert r.status_code == 200
+    # After clear: empty list, even though the snapshot dir still exists on disk
+    entries = client.get("/api/watermarks/applied").get_json()["entries"]
+    assert entries == []
+    # The snapshot dir is still there (for History modal use)
+    snapshot_dirs = list(app_module.HISTORY_DIR.iterdir())
+    assert len(snapshot_dirs) >= 1
 
 
 # ── Full reset ──────────────────────────────────────────────────────────────
@@ -639,10 +936,12 @@ def test_reset_all_creates_undo_snapshot(app_with_slides):
 
 
 def test_orphan_revert_restores_slides(app_with_slides):
+    """Orphans (snapshots not in the log) must still be revertable. We simulate
+    one by wiping the log file directly (without bumping the clear marker)."""
     client, app_module = app_with_slides
     before = (app_module.SLIDES_DIR / "slide-01.jpg").read_bytes()
     client.post("/api/watermark", json={"text": "ORPHAN-REVERT", "scope": "all"})
-    client.post("/api/watermarks/clear-log")
+    app_module.WATERMARK_LOG.write_text("[]")  # bypass clear-log endpoint
     entries = client.get("/api/watermarks/applied").get_json()["entries"]
     orphan_id = entries[0]["id"]
     r = client.post(f"/api/watermarks/revert/{orphan_id}")
@@ -652,8 +951,8 @@ def test_orphan_revert_restores_slides(app_with_slides):
 
 
 def test_applied_log_clear(app_with_slides):
-    """Clearing the log removes the rich log entry. The history snapshot
-    remains on disk and surfaces as an orphan entry (still revertable)."""
+    """Clearing the log via the endpoint empties the Applied list completely —
+    log file is empty AND the cleared-before marker hides the orphans."""
     client, app_module = app_with_slides
     r = client.post("/api/watermark", json={"text": "X"})
     log_id = r.get_json()["log_id"]
@@ -663,11 +962,9 @@ def test_applied_log_clear(app_with_slides):
     # Log file itself is empty
     import json
     assert json.loads(app_module.WATERMARK_LOG.read_text()) == []
-    # But the snapshot persists, so we see an orphan instead of nothing
+    # And the visible list is empty — clear must hide orphans too
     entries = client.get("/api/watermarks/applied").get_json()["entries"]
-    assert len(entries) == 1
-    assert entries[0]["orphan"] is True
-    assert entries[0]["id"] != log_id  # different — orphan id format
+    assert entries == []
 
 
 def test_find_replace_counts_replacements(app_with_slides):

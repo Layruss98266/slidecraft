@@ -196,6 +196,26 @@ Built with Flask + vanilla JS. No React, no build step. Just `python app.py` and
 
 ---
 
+## Installation
+
+**Fastest path** — see [INSTALL.md](INSTALL.md) for the full cross-platform guide. TL;DR:
+
+```bash
+git clone https://github.com/Layruss98266/slidecraft.git
+cd slidecraft
+
+# One-command launcher (creates venv, installs deps, runs server)
+./run.sh              # macOS / Linux
+# or run.bat          # Windows (cmd.exe)
+# or .\run.ps1        # Windows (PowerShell)
+```
+
+The launcher creates `.venv/`, installs `requirements.txt`, warns if LibreOffice isn't installed, then starts the server at http://127.0.0.1:5050. First run takes ~3 min (LibreOffice optional but strongly recommended for high-fidelity slide rendering).
+
+The step-by-step instructions below cover the same thing manually if you'd rather not use the launcher.
+
+---
+
 ## Installation (Step by Step)
 
 ### Step 1: Install Python
@@ -523,7 +543,7 @@ slidecraft/
 ### Batch Endpoints
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/batch/remove-logo` | Bulk upload up to 10 PPTX, remove logos, return ZIP |
+| `POST` | `/api/batch/remove-logo` | Bulk upload up to 20 PPTX, remove logos, return ZIP |
 
 ### Template Endpoints
 | Method | Endpoint | Description |

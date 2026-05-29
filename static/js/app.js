@@ -90,6 +90,10 @@ window.addEventListener('resize', () => {
 // ══════════════════════════════════════════════════════════════════════════
 // UNDO / REDO
 // ══════════════════════════════════════════════════════════════════════════
+// Server-side undo/redo state (refreshed from /api/ops/state)
+let _serverUndoState = { can_undo: false, can_redo: false,
+                         undo_label: null, redo_label: null };
+
 function pushUndo() {
   undoStack.push(JSON.stringify(overlays));
   if (undoStack.length > MAX_UNDO) undoStack.shift();
@@ -97,28 +101,113 @@ function pushUndo() {
   updateUndoButtons();
 }
 
-function undo() {
-  if (undoStack.length === 0) return;
-  redoStack.push(JSON.stringify(overlays));
-  overlays = JSON.parse(undoStack.pop());
-  selectedIdx = -1;
-  renderOverlayList(); renderOverlays(); hidePropsForm(); markDirty();
-  updateUndoButtons();
+async function undo() {
+  // Prefer client-side overlay undo if available — it's instant and the
+  // user's most recent action is most likely a canvas edit.
+  if (undoStack.length > 0) {
+    redoStack.push(JSON.stringify(overlays));
+    overlays = JSON.parse(undoStack.pop());
+    selectedIdx = -1;
+    renderOverlayList(); renderOverlays(); hidePropsForm(); markDirty();
+    updateUndoButtons();
+    return;
+  }
+  // Refresh server state in case actions happened that didn't touch the badge
+  await refreshServerUndoState();
+  // Fall back to server-op undo (filters, watermarks, crop, bake, etc.)
+  if (!_serverUndoState.can_undo) return;
+  showLoading('Undoing...');
+  try {
+    const resp = await fetch('/api/ops/undo', { method: 'POST' });
+    const data = await resp.json();
+    hideLoading();
+    if (data.ok) {
+      reloadAllSlides();
+      // Refresh per-slide overlay state from server (data.json was rewritten)
+      gotoSlide(currentSlide);
+      refreshAppliedBadge();
+      refreshServerUndoState();
+      showToast('Undid: ' + (data.text || data.kind || 'last action'), 'success');
+    } else if (data.reason) {
+      showToast(data.reason, 'info');
+    } else {
+      showToast(data.error || 'Undo failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Undo error: ' + e.message, 'error');
+  }
 }
 
-function redo() {
-  if (redoStack.length === 0) return;
-  undoStack.push(JSON.stringify(overlays));
-  overlays = JSON.parse(redoStack.pop());
-  selectedIdx = -1;
-  renderOverlayList(); renderOverlays(); hidePropsForm(); markDirty();
+async function redo() {
+  if (redoStack.length > 0) {
+    undoStack.push(JSON.stringify(overlays));
+    overlays = JSON.parse(redoStack.pop());
+    selectedIdx = -1;
+    renderOverlayList(); renderOverlays(); hidePropsForm(); markDirty();
+    updateUndoButtons();
+    return;
+  }
+  await refreshServerUndoState();
+  if (!_serverUndoState.can_redo) return;
+  showLoading('Redoing...');
+  try {
+    const resp = await fetch('/api/ops/redo', { method: 'POST' });
+    const data = await resp.json();
+    hideLoading();
+    if (data.ok) {
+      reloadAllSlides();
+      gotoSlide(currentSlide);
+      refreshAppliedBadge();
+      refreshServerUndoState();
+      showToast('Redid: ' + (data.text || data.kind || 'action'), 'success');
+    } else if (data.reason) {
+      showToast(data.reason, 'info');
+    } else {
+      showToast(data.error || 'Redo failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Redo error: ' + e.message, 'error');
+  }
+}
+
+async function refreshServerUndoState() {
+  try {
+    const resp = await fetch('/api/ops/state');
+    _serverUndoState = await resp.json();
+  } catch (e) {
+    _serverUndoState = { can_undo: false, can_redo: false };
+  }
   updateUndoButtons();
 }
 
 function updateUndoButtons() {
-  document.getElementById('btn-undo').classList.toggle('disabled', undoStack.length === 0);
-  document.getElementById('btn-redo').classList.toggle('disabled', redoStack.length === 0);
+  const canUndo = undoStack.length > 0 || _serverUndoState.can_undo;
+  const canRedo = redoStack.length > 0 || _serverUndoState.can_redo;
+  const undoBtn = document.getElementById('btn-undo');
+  const redoBtn = document.getElementById('btn-redo');
+  if (undoBtn) {
+    undoBtn.classList.toggle('disabled', !canUndo);
+    // Tooltip shows next action label so users know what Undo will do
+    const lbl = undoStack.length > 0 ? 'Undo overlay edit'
+              : (_serverUndoState.undo_label
+                  ? 'Undo: ' + _serverUndoState.undo_label
+                  : 'Undo (Ctrl+Z)');
+    undoBtn.setAttribute('title', lbl);
+  }
+  if (redoBtn) {
+    redoBtn.classList.toggle('disabled', !canRedo);
+    const lbl = redoStack.length > 0 ? 'Redo overlay edit'
+              : (_serverUndoState.redo_label
+                  ? 'Redo: ' + _serverUndoState.redo_label
+                  : 'Redo (Ctrl+Y)');
+    redoBtn.setAttribute('title', lbl);
+  }
 }
+
+// Keep the server-side undo/redo state fresh after each destructive action.
+window.addEventListener('load', refreshServerUndoState);
 
 // ══════════════════════════════════════════════════════════════════════════
 // SLIDE NAVIGATION
@@ -566,46 +655,148 @@ canvas.addEventListener('click', (e) => {
   }
 });
 
+// Pick the px font-size that, when rendered with the given CSS font, produces
+// glyphs roughly matching target_cap_height_px. Uses an offscreen canvas's
+// measureText (actualBoundingBoxAscent/Descent if available, else fall back to a
+// linear estimate of cap-height ≈ 0.7 × font-size).
+function _calibrateFontSizePx(family, bold, italic, target_cap_px) {
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  const weight = bold ? '700' : '400';
+  const style  = italic ? 'italic' : 'normal';
+  let lo = 6, hi = 200, best = Math.max(10, Math.round(target_cap_px / 0.7));
+  for (let iter = 0; iter < 12 && lo <= hi; iter++) {
+    const mid = (lo + hi) >> 1;
+    ctx.font = `${style} ${weight} ${mid}px "${family}", sans-serif`;
+    const m = ctx.measureText('Hg');
+    let renderedCap;
+    if (m.actualBoundingBoxAscent != null && m.actualBoundingBoxDescent != null) {
+      renderedCap = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    } else {
+      renderedCap = mid * 0.72;
+    }
+    if (Math.abs(renderedCap - target_cap_px) < 1) { best = mid; break; }
+    if (renderedCap < target_cap_px) { lo = mid + 1; best = mid; }
+    else { hi = mid - 1; best = mid; }
+  }
+  return Math.max(8, Math.min(200, best));
+}
+
+const _OCR_FONT_CANDIDATES = ['Inter','Segoe UI','Calibri','Roboto','Arial','Helvetica'];
+
+// Pick the candidate font whose average glyph width (per the OCR region's
+// text + width) best matches what the original drew. Falls back to Arial.
+function _guessFontFamily(text, target_total_width_px, target_cap_px, bold, italic) {
+  if (!text || target_total_width_px <= 0) return 'Arial';
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  const weight = bold ? '700' : '400';
+  const style  = italic ? 'italic' : 'normal';
+  // Use a size that approximates the original cap height
+  const probeSize = Math.max(12, Math.round(target_cap_px / 0.7));
+  let best = 'Arial';
+  let bestDiff = Infinity;
+  for (const fam of _OCR_FONT_CANDIDATES) {
+    ctx.font = `${style} ${weight} ${probeSize}px "${fam}", sans-serif`;
+    const m = ctx.measureText(text);
+    const diff = Math.abs(m.width - target_total_width_px);
+    if (diff < bestDiff) { bestDiff = diff; best = fam; }
+  }
+  return best;
+}
+
 async function createCoverFromOCR(region) {
   pushUndo();
-  // Sample both background color AND text color from the region
   const body = {
     x: Math.round(region.x * 1000) / 1000,
     y: Math.round(region.y * 1000) / 1000,
     w: Math.round(region.w * 1000) / 1000,
     h: Math.round(region.h * 1000) / 1000
   };
+
+  // 1. Sample background/text colour, alignment, cap-height, italic-ness.
   let bgColor = '#ffffff';
   let textColor = '#000000';
-  let fontWeight = 'bold';
+  let fontWeight = 'normal';
+  let align = 'left';
+  let capHeightPx = Math.max(10, Math.round(region.h * 1200 * 0.7));
+  let isItalic = false;
   try {
     const resp = await fetch(`/api/sample-color/${currentSlide}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
     const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
     if (data.color) bgColor = data.color;
     if (data.textColor) textColor = data.textColor;
     if (data.fontWeight) fontWeight = data.fontWeight;
-  } catch (e) {}
+    if (data.align) align = data.align;
+    if (typeof data.cap_height_px === 'number') capHeightPx = data.cap_height_px;
+    if (typeof data.is_italic === 'boolean') isItalic = data.is_italic;
+  } catch (e) {
+    // Non-fatal — we have sane defaults. Warn the user so they know the
+    // style match may be off rather than failing silently.
+    showToast('Could not sample original style (' + e.message + ') — using defaults', 'info', 3000);
+  }
 
   const isBold = (fontWeight === 'bold' || fontWeight === 'extrabold' || fontWeight === 'semibold');
 
-  // Padding so cover fully hides the original text
-  const pad = 0.003;
-  const rx = Math.max(0, region.x - pad);
-  const ry = Math.max(0, region.y - pad);
-  const rw = region.w + pad * 2;
-  const rh = region.h + pad * 2;
+  // 2. Inpaint the original text region so the background is preserved (no
+  //    flat-coloured cover rectangle). Then reload the slide image.
+  showLoading('Erasing original text...');
+  let inpaintOk = false;
+  try {
+    const resp = await fetch(`/api/slide/${currentSlide}/inpaint-region`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error) {
+      throw new Error(data.error || `HTTP ${resp.status}`);
+    }
+    inpaintOk = data.ok === true;
+  } catch (e) {
+    showToast('Inpaint failed (' + e.message + ') — overlay will sit on top of original text', 'error');
+  }
+  hideLoading();
+  const pad2 = String(currentSlide).padStart(2, '0');
+  const newSrc = `/static/slides/slide-${pad2}.jpg?t=${Date.now()}`;
+  slideImg.src = newSrc;
+  const thumb = document.querySelector(`#thumb-${currentSlide} img`);
+  if (thumb) thumb.src = newSrc;
 
-  // Estimate font size from region height
-  const pixelH = region.h * 1200;
-  const fontSize = Math.max(10, Math.min(72, Math.round(pixelH * 0.7 / (2134 / 933))));
+  // 3. Pick a font family by matching glyph widths against the original.
+  // region.w is normalised; convert to source-image pixels (slide is 2134px wide
+  // by convention). Use the canvas-side equivalent (≈ canvas width × region.w).
+  const targetTotalWidthPx = (region.w * (canvas.width || 1280));
+  const family = _guessFontFamily(region.text, targetTotalWidthPx,
+                                  capHeightPx * (canvas.height || 720) / 1200,
+                                  isBold, isItalic);
 
-  // Create cover rect with exact sampled bg color
-  overlays.push({ type: 'rect', x: rx, y: ry, w: rw, h: rh, fillColor: bgColor, opacity: 1 });
-  // Create text overlay matching detected weight
-  overlays.push({ type: 'text', x: rx, y: ry, w: rw, h: rh, text: region.text || '', fontFamily: 'Arial', fontSize, color: textColor, bold: isBold, italic: false, underline: false, align: 'left', bgColor: 'transparent', opacity: 1, letterSpacing: 0, lineHeight: 1.1, textTransform: 'none', shadow: false, shadowColor: '#000000', shadowBlur: 4, outline: false, outlineColor: '#000000', outlineWidth: 1, autoFit: true, listStyle: 'none' });
+  // 4. Calibrate fontSize against rendered cap height in the canvas-side scale.
+  // The bake step rescales by w/933, so fontSize stored = pixelCap / (w/933).
+  // We use canvas.width/933 as the approximate scale factor.
+  const canvasScale = (canvas.width || 1280) / 933;
+  const canvasSideCapPx = capHeightPx * (canvas.height || 720) / 1200;
+  const calibratedPx = _calibrateFontSizePx(family, isBold, isItalic, canvasSideCapPx);
+  const fontSize = Math.max(8, Math.min(120, Math.round(calibratedPx / canvasScale)));
+
+  // 5. Position the text overlay exactly at the OCR bbox (no cover rect).
+  overlays.push({
+    type: 'text',
+    x: region.x, y: region.y, w: region.w, h: region.h,
+    text: region.text || '',
+    fontFamily: family, fontSize,
+    color: textColor, bold: isBold, italic: isItalic, underline: false,
+    align, verticalAlign: 'center',
+    bgColor: 'transparent', opacity: 1,
+    letterSpacing: 0, lineHeight: 1.1, textTransform: 'none',
+    shadow: false, shadowColor: '#000000', shadowBlur: 4,
+    outline: false, outlineColor: '#000000', outlineWidth: 1,
+    autoFit: true, listStyle: 'none',
+  });
   selectOverlay(overlays.length - 1);
   setTool('select');
   switchTab('props');
@@ -916,6 +1107,15 @@ function renderOverlays() {
       ctx.textAlign = ov.align || 'left';
       const tx = ov.align === 'center' ? x + w/2 : ov.align === 'right' ? x + w - 8 : x + 8;
 
+      // Vertical alignment within the bbox
+      const vAlign = ov.verticalAlign || 'top';
+      const totalLines = _countWrapLines(ctx, displayText, w - 16, ls * scaleRatio);
+      const blockH = Math.max(0, totalLines * (fs * lh));
+      let startTy;
+      if (vAlign === 'center')      startTy = y + Math.max(0, (h - blockH) / 2) + fs;
+      else if (vAlign === 'bottom') startTy = y + Math.max(0, h - blockH - 8) + fs;
+      else                          startTy = y + fs + 8;
+
       // Shadow
       if (ov.shadow) {
         ctx.shadowColor = ov.shadowColor || '#000000';
@@ -931,7 +1131,7 @@ function renderOverlays() {
         // We need to stroke each line — done inside wrapText-like loop
         const savedFill = ctx.fillStyle;
         const outlineLines = _getWrapLines(ctx, displayText, w - 16, ls * scaleRatio);
-        let oy = y + fs + 8;
+        let oy = startTy;
         for (const ln of outlineLines) {
           if (ls !== 0) {
             _strokeTextWithSpacing(ctx, ln, tx, oy, ls * scaleRatio);
@@ -943,7 +1143,7 @@ function renderOverlays() {
         ctx.fillStyle = savedFill;
       }
 
-      const drawnLines = wrapText(ctx, displayText, tx, y + fs + 8, w - 16, fs * lh, { letterSpacing: ls, scale: scaleRatio });
+      const drawnLines = wrapText(ctx, displayText, tx, startTy, w - 16, fs * lh, { letterSpacing: ls, scale: scaleRatio });
 
       // Reset shadow
       ctx.shadowColor = 'transparent';
@@ -1258,6 +1458,8 @@ function showPropsForm(ov) {
     document.getElementById('prop-fontsize').value = ov.fontSize || 18;
     document.getElementById('prop-color').value   = ov.color || '#FFFFFF';
     document.getElementById('prop-align').value   = ov.align || 'left';
+    const valignEl = document.getElementById('prop-valign');
+    if (valignEl) valignEl.value = ov.verticalAlign || 'top';
     document.getElementById('prop-bold').checked  = ov.bold || false;
     document.getElementById('prop-italic').checked = ov.italic || false;
     const noBg = !ov.bgColor || ov.bgColor === 'transparent';
@@ -1781,8 +1983,8 @@ async function uploadPPTX(input) {
 async function bulkRemoveLogo(input) {
   const files = Array.from(input.files);
   if (!files.length) return;
-  if (files.length > 10) {
-    showToast('Maximum 10 files allowed', 'error');
+  if (files.length > 20) {
+    showToast('Maximum 20 files allowed', 'error');
     input.value = '';
     return;
   }
@@ -2738,6 +2940,9 @@ async function refreshAppliedBadge() {
       badge.style.display = 'none';
     }
   } catch (e) { /* silent */ }
+  // Also refresh the global undo/redo button state — every destructive action
+  // changes what Ctrl+Z would target next.
+  refreshServerUndoState();
 }
 
 async function loadAppliedWatermarks() {
@@ -2760,12 +2965,33 @@ async function loadAppliedWatermarks() {
 function renderAppliedEntry(e) {
   const isOrphan = !!e.orphan;
   let swatch, title;
+  // SVG icons keyed by kind
+  const ICONS = {
+    crop:        '<path d="M6 2v14a2 2 0 002 2h14"/><path d="M18 22V8a2 2 0 00-2-2H2"/>',
+    rotate:      '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15A9 9 0 1 1 18 6.36L23 10"/>',
+    bake:        '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/>',
+    'remove-logo':'<circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/>',
+    'find-replace':'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    reorder:     '<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>',
+    'load-template':'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+    'restore-version':'<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>',
+  };
+  // Friendly kind labels
+  const KIND_LABEL = {
+    filters: 'Filters', crop: 'Crop', rotate: 'Rotate', bake: 'Bake overlays',
+    'remove-logo': 'Remove logo', 'find-replace': 'Find & replace',
+    reorder: 'Reorder', 'load-template': 'Load template',
+    'restore-version': 'Restore version',
+  };
   if (e.kind === 'filters') {
     swatch = '<div class="wm-applied-swatch" style="color:var(--accent2)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/></svg></div>';
     title = escapeHtml('Filters: ' + (e.text || 'no changes'));
   } else if (e.kind === 'text') {
     swatch = '<div class="wm-applied-swatch" style="color:' + escapeAttr(e.color || '#888') + '">A</div>';
     title = escapeHtml(e.text || '(empty)');
+  } else if (ICONS[e.kind]) {
+    swatch = '<div class="wm-applied-swatch" style="color:var(--accent2)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' + ICONS[e.kind] + '</svg></div>';
+    title = escapeHtml(KIND_LABEL[e.kind] || e.kind) + ' — ' + escapeHtml(e.text || '');
   } else {
     swatch = '<div class="wm-applied-swatch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg></div>';
     title = escapeHtml(e.filename || 'Image watermark');
@@ -2818,7 +3044,7 @@ async function revertAppliedWatermark(id, title) {
 }
 
 async function clearAppliedLog() {
-  if (!confirm('Clear the watermark log? Slide images are NOT changed. You will lose the ability to revert applied watermarks from this list (history snapshots remain available in the History modal).')) return;
+  if (!confirm('Clear the watermark log?\n\nThis hides all current entries (including the "Earlier session" orphans detected from history snapshots). Slide images and the underlying history snapshots are NOT touched — you can still revert them from the History modal.')) return;
   try {
     await fetch('/api/watermarks/clear-log', { method: 'POST' });
     loadAppliedWatermarks();

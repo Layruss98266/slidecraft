@@ -235,7 +235,7 @@
         <input type="file" accept=".pptx" id="upload-input" onchange="uploadPPTX(this)" style="display:none">
       </label>
       <div class="group-sep"></div>
-      <label class="btn-action bulk-btn" style="cursor:pointer" title="Bulk: upload up to 10 PPTX files, remove logos, download ZIP">
+      <label class="btn-action bulk-btn" style="cursor:pointer" title="Bulk: upload up to 20 PPTX files, remove logos, download ZIP">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v2"/><path d="M20 16v2a2 2 0 01-2 2h-2"/><path d="M4 8V6a2 2 0 012-2h2"/><path d="M8 20H6a2 2 0 01-2-2v-2"/><path d="M9 12l3-3 3 3"/><path d="M12 9v6"/></svg>
         <span class="act-label">Bulk</span>
         <input type="file" accept=".pptx" multiple id="bulk-upload-input" onchange="bulkRemoveLogo(this)" style="display:none">
@@ -556,6 +556,7 @@
         <div class="field">
           <label>Font Family</label>
           <select id="prop-fontfamily" onchange="updateSelectedProp('fontFamily', this.value)" style="font-family:inherit">
+            <option value="Inter" style="font-family:Inter">Inter</option>
             <option value="Segoe UI" style="font-family:'Segoe UI'">Segoe UI</option>
             <option value="Arial" style="font-family:Arial">Arial</option>
             <option value="Calibri" style="font-family:Calibri">Calibri</option>
@@ -580,13 +581,23 @@
             <input type="color" id="prop-color" value="#FFFFFF" oninput="updateSelectedProp('color', this.value)">
           </div>
         </div>
-        <div class="field">
-          <label>Alignment</label>
-          <select id="prop-align" onchange="updateSelectedProp('align', this.value)">
-            <option value="left">Left</option>
-            <option value="center">Center</option>
-            <option value="right">Right</option>
-          </select>
+        <div class="field-row">
+          <div class="field">
+            <label>Alignment</label>
+            <select id="prop-align" onchange="updateSelectedProp('align', this.value)">
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Vertical</label>
+            <select id="prop-valign" onchange="updateSelectedProp('verticalAlign', this.value)">
+              <option value="top">Top</option>
+              <option value="center">Center</option>
+              <option value="bottom">Bottom</option>
+            </select>
+          </div>
         </div>
         <div class="field-row">
           <div class="field checkbox-row">
