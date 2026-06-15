@@ -1,6 +1,6 @@
-# SlideCraft — Optional Setup Guide
+# SlideCraft — Setup Guide
 
-Most features work out of the box. This guide covers the **optional** integrations:
+Most features work out of the box after `pip install -r requirements.txt`. This guide covers integrations that require external services or additional configuration:
 
 1. [Local AI via Ollama](#1-local-ai-via-ollama) — AI Rewrite / Translate / Alt-text / Slides-from-prompt
 2. [Background Remover (rembg)](#2-background-remover-rembg)
@@ -57,13 +57,9 @@ With SlideCraft running, open `http://127.0.0.1:5050/api/ai/status`. You should 
 
 ## 2. Background Remover (rembg)
 
-Removes the background from any image overlay using the U²-Net model.
+Removes the background from any image overlay using the U²-Net model. **rembg is bundled in `requirements.txt` and installed automatically** — no extra install step needed.
 
-```bash
-pip install rembg
-```
-
-First call downloads the ~170 MB model (one-time).
+First use downloads the ~170 MB U²-Net model (one-time, cached locally).
 
 Use: select an image overlay → click **Remove BG** in the toolbar.
 

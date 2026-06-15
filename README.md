@@ -70,7 +70,7 @@ See **[SETUP.md](SETUP.md)** for the integrations that need external services.
 
 ---
 
-## Features at a Glance (40+)
+## Features at a Glance (45+)
 
 ### Drawing & Shape Tools
 | Feature | Description |
