@@ -245,6 +245,10 @@
         <span class="act-label">Bulk</span>
         <input type="file" accept=".pptx" multiple id="bulk-upload-input" onchange="bulkRemoveLogo(this)" style="display:none">
       </label>
+      <button class="btn-action bulk-btn" onclick="folderRemoveLogo()" title="Folder: process every PPTX in a local folder, output to '<folder>/Slides Final'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/><path d="M9 13l2 2 4-4"/></svg>
+        <span class="act-label">Folder</span>
+      </button>
       <div class="group-sep"></div>
       <button class="btn-action" onclick="removeLogos()" title="Remove NotebookLM watermark">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg>
@@ -539,6 +543,10 @@
             Bulk Process
             <input type="file" accept=".pptx" multiple onchange="bulkRemoveLogo(this)" style="display:none">
           </label>
+          <button class="empty-btn" onclick="folderRemoveLogo()" style="cursor:pointer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/><path d="M9 13l2 2 4-4"/></svg>
+            Folder
+          </button>
         </div>
       </div>
       {% endif %}
@@ -1025,6 +1033,12 @@
                 <button class="wm-seg" id="wm-scope-current" onclick="setWmScope('current')">Current slide</button>
                 <button class="wm-seg active" id="wm-scope-all" onclick="setWmScope('all')">All slides</button>
               </div>
+            </div>
+
+            <div class="field" id="wm-skip-field">
+              <label>Skip slides <span style="color:var(--text3);font-weight:400;font-size:11px">(optional)</span></label>
+              <input type="text" id="wm-skip" placeholder="e.g. 2,4,7-9" style="width:100%;padding:6px 8px;background:var(--bg2);color:var(--text1);border:1px solid var(--border);border-radius:6px;font-size:13px">
+              <div style="font-size:11px;color:var(--text3);margin-top:3px">Comma-separated slide numbers or ranges. These slides won't get the watermark.</div>
             </div>
 
             <div class="wm-actions">

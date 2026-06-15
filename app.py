@@ -46,6 +46,14 @@ try:
 except ImportError:
     pass
 
+# Background removal — rembg (optional, ~170 MB model download on first use)
+HAS_REMBG = False
+try:
+    from rembg import remove as rembg_remove
+    HAS_REMBG = True
+except ImportError:
+    pass
+
 app = Flask(__name__)
 # Default upload cap is 1 GB so the bulk endpoint comfortably accepts 20 PPTX
 # files even when individual files run heavy (~30-50 MB with embedded video).
@@ -159,6 +167,54 @@ def _get_deck_name():
     except OSError:
         pass
     return ""
+
+def _parse_skip_slides(value):
+    """Normalize a 'skip slides' input into a set of 1-based ints.
+
+    Accepts:
+      - list/tuple of ints or numeric strings
+      - comma-separated string with optional ranges, e.g. '2,4,7-9'
+    Invalid tokens are silently dropped. Returns set() if nothing valid.
+    """
+    out = set()
+    if value is None:
+        return out
+    tokens = []
+    if isinstance(value, (list, tuple)):
+        tokens = list(value)
+    elif isinstance(value, str):
+        tokens = [t.strip() for t in value.split(',') if t.strip()]
+    else:
+        return out
+    for tok in tokens:
+        if isinstance(tok, int):
+            if tok >= 1:
+                out.add(tok)
+            continue
+        if not isinstance(tok, str):
+            continue
+        tok = tok.strip()
+        if not tok:
+            continue
+        if '-' in tok:
+            parts = tok.split('-', 1)
+            try:
+                a, b = int(parts[0].strip()), int(parts[1].strip())
+            except ValueError:
+                continue
+            if a > b:
+                a, b = b, a
+            for i in range(max(1, a), b + 1):
+                out.add(i)
+        else:
+            try:
+                n = int(tok)
+            except ValueError:
+                continue
+            if n >= 1:
+                out.add(n)
+    return out
+
 
 # ── NotebookLM Logo Removal ─────────────────────────────────────────────────
 
@@ -1168,6 +1224,27 @@ def upload_image():
     return jsonify({"src": f"data:image/png;base64,{b64}", "w": img.width, "h": img.height})
 
 
+@app.route("/api/remove-background", methods=["POST"])
+def remove_background():
+    """Strip background from a base64 image overlay using rembg."""
+    if not HAS_REMBG:
+        return jsonify({"error": "rembg not installed — run: pip install rembg"}), 501
+    payload = _ensure_dict(request.json)
+    src = payload.get("src", "")
+    if not src.startswith("data:image/"):
+        return jsonify({"error": "Invalid image data"}), 400
+    try:
+        header, b64data = src.split(",", 1)
+        raw = base64.b64decode(b64data)
+        if len(raw) > MAX_OVERLAY_IMG_BYTES:
+            return jsonify({"error": "Image too large (max 8 MB)"}), 413
+        result = rembg_remove(raw)
+        b64out = base64.b64encode(result).decode()
+        return jsonify({"src": f"data:image/png;base64,{b64out}"})
+    except Exception as e:
+        return jsonify({"error": f"Background removal failed: {e}"}), 500
+
+
 # ── Slide reorder route ─────────────────────────────────────────────────────
 
 @app.route("/api/reorder", methods=["POST"])
@@ -2059,6 +2136,7 @@ def add_watermark():
 
     scope = str(payload.get("scope", "all"))
     all_files = _get_slide_files()
+    skip_set = _parse_skip_slides(payload.get("skip_slides"))
     if scope == "current":
         try:
             n = int(payload.get("slide_num", 1))
@@ -2066,9 +2144,13 @@ def add_watermark():
             n = 1
         if n < 1 or n > len(all_files):
             return jsonify({"error": "Invalid slide_num"}), 400
+        if n in skip_set:
+            return jsonify({"error": f"Slide {n} is in the skip list"}), 400
         targets = [all_files[n - 1]]
     else:
-        targets = all_files
+        targets = [f for i, f in enumerate(all_files, start=1) if i not in skip_set]
+        if not targets:
+            return jsonify({"error": "Skip list excludes every slide — nothing to do"}), 400
 
     snapshot = _snapshot_before_destructive("watermark-text")
     for sf in targets:
@@ -2095,11 +2177,14 @@ def add_watermark():
         "tile_spacing": tile_spacing,
         "scope": scope,
         "slide_num": int(payload.get("slide_num", 1)) if scope == "current" else None,
+        "skip_slides": sorted(skip_set) if skip_set else [],
         "count": len(targets),
         "snapshot": snapshot,
         "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
     })
-    return jsonify({"ok": True, "count": len(targets), "snapshot": snapshot, "log_id": entry_id})
+    return jsonify({"ok": True, "count": len(targets),
+                    "skipped": sorted(skip_set) if skip_set else [],
+                    "snapshot": snapshot, "log_id": entry_id})
 
 
 @app.route("/api/watermark/preview/<int:num>", methods=["POST"])
@@ -2331,6 +2416,7 @@ def add_image_watermark():
 
     scope = request.form.get("scope", "all")
     all_files = _get_slide_files()
+    skip_set = _parse_skip_slides(request.form.get("skip_slides"))
     if scope == "current":
         try:
             n = int(request.form.get("slide_num", 1))
@@ -2338,9 +2424,13 @@ def add_image_watermark():
             n = 1
         if n < 1 or n > len(all_files):
             return jsonify({"error": "Invalid slide_num"}), 400
+        if n in skip_set:
+            return jsonify({"error": f"Slide {n} is in the skip list"}), 400
         slide_files = [all_files[n - 1]]
     else:
-        slide_files = all_files
+        slide_files = [f for i, f in enumerate(all_files, start=1) if i not in skip_set]
+        if not slide_files:
+            return jsonify({"error": "Skip list excludes every slide — nothing to do"}), 400
 
     snapshot = _snapshot_before_destructive("watermark-image")
     for sf in slide_files:
@@ -2393,6 +2483,7 @@ def add_image_watermark():
         "scale": wm_scale,
         "scope": scope,
         "slide_num": int(request.form.get("slide_num", 1)) if scope == "current" else None,
+        "skip_slides": sorted(skip_set) if skip_set else [],
         "count": len(slide_files),
         "snapshot": snapshot,
         "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -2831,6 +2922,116 @@ def batch_remove_logo():
     finally:
         shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
+
+@app.route("/api/folder/remove-logo", methods=["POST"])
+def folder_remove_logo():
+    """Process every .pptx in a local folder: strip the NotebookLM logo and
+    write the cleaned file to '<folder>/Slides Final/<name>.pptx'.
+
+    Body: {"folder": "<abs path>", "overwrite": bool (optional, default False),
+           "recursive": bool (optional, default False)}
+
+    Streams NDJSON progress events as files complete:
+      {"type":"start",  "total": N, "folder": ..., "output_folder": ...}
+      {"type":"file",   "index": i, "total": N, "file": name,
+                        "status": "ok"|"skipped"|"error", ...}
+      {"type":"done",   "ok": K, "skipped": S, "error": E, "total": N}
+    """
+    import tempfile
+    from flask import Response, stream_with_context
+
+    payload = _ensure_dict(request.json)
+    raw = payload.get("folder", "")
+    if not isinstance(raw, str) or not raw.strip():
+        return jsonify({"error": "Missing 'folder' path"}), 400
+
+    src = Path(raw.strip()).expanduser()
+    try:
+        src = src.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return jsonify({"error": f"Folder not found: {raw}"}), 400
+    if not src.is_dir():
+        return jsonify({"error": f"Not a folder: {src}"}), 400
+
+    recursive = bool(payload.get("recursive", False))
+    overwrite = bool(payload.get("overwrite", False))
+
+    out_dir = src / "Slides Final"
+    pattern = "**/*.pptx" if recursive else "*.pptx"
+    pptx_files = sorted(
+        p for p in src.glob(pattern)
+        if p.is_file() and out_dir not in p.parents and p.parent != out_dir
+    )
+    if not pptx_files:
+        return jsonify({"error": "No .pptx files found in folder",
+                        "folder": str(src)}), 404
+
+    out_dir.mkdir(exist_ok=True)
+    total = len(pptx_files)
+
+    def _emit(obj):
+        return (json.dumps(obj) + "\n").encode("utf-8")
+
+    @stream_with_context
+    def generate():
+        ok = skipped = errored = 0
+        yield _emit({"type": "start", "total": total,
+                     "folder": str(src), "output_folder": str(out_dir)})
+
+        for i, input_path in enumerate(pptx_files, start=1):
+            fname = input_path.name
+            output_path = out_dir / fname
+
+            yield _emit({"type": "file", "index": i, "total": total,
+                         "file": fname, "status": "processing"})
+
+            if output_path.exists() and not overwrite:
+                skipped += 1
+                yield _emit({"type": "file", "index": i, "total": total,
+                             "file": fname, "status": "skipped",
+                             "reason": "already exists in Slides Final"})
+                continue
+
+            tmp_dir = Path(tempfile.mkdtemp(prefix="slidecraft_folder_"))
+            try:
+                file_slides_dir = tmp_dir / "slides"
+                file_slides_dir.mkdir()
+                try:
+                    _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
+                except (RuntimeError, FileNotFoundError,
+                        subprocess.SubprocessError, OSError):
+                    _convert_pptx_to_images_pillow(input_path, file_slides_dir)
+
+                slide_images = sorted(file_slides_dir.glob("slide-*.jpg"))
+                if not slide_images:
+                    errored += 1
+                    yield _emit({"type": "file", "index": i, "total": total,
+                                 "file": fname, "status": "error",
+                                 "error": "Could not render slides"})
+                    continue
+
+                remove_logos_batch(slide_images)
+                _rebuild_pptx_from_images(slide_images, output_path)
+                ok += 1
+                yield _emit({"type": "file", "index": i, "total": total,
+                             "file": fname, "status": "ok",
+                             "slides": len(slide_images),
+                             "output": str(output_path)})
+            except Exception as e:
+                errored += 1
+                yield _emit({"type": "file", "index": i, "total": total,
+                             "file": fname, "status": "error",
+                             "error": str(e)})
+            finally:
+                shutil.rmtree(str(tmp_dir), ignore_errors=True)
+
+        yield _emit({"type": "done", "total": total,
+                     "ok": ok, "skipped": skipped, "error": errored,
+                     "folder": str(src), "output_folder": str(out_dir)})
+
+    return Response(generate(), mimetype="application/x-ndjson",
+                    headers={"X-Accel-Buffering": "no",
+                             "Cache-Control": "no-cache"})
 
 
 def _rebuild_pptx_from_images(slide_images, output_path):

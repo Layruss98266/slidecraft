@@ -975,6 +975,33 @@ async function handleImageUpload(input) {
   input.value = '';
 }
 
+async function removeBgFromSelected() {
+  if (selectedIdx < 0 || overlays[selectedIdx]?.type !== 'image') {
+    showToast('Select an image overlay first', 'error'); return;
+  }
+  const ov = overlays[selectedIdx];
+  if (!ov.src) { showToast('No image source found', 'error'); return; }
+  showToast('Removing background…', 'info');
+  try {
+    const resp = await fetch('/api/remove-background', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ src: ov.src })
+    });
+    const data = await resp.json();
+    if (data.error) { showToast(data.error, 'error'); return; }
+    pushUndo();
+    ov.src = data.src;
+    delete imageCache[selectedIdx];
+    preloadSingleImage(selectedIdx);
+    renderOverlays();
+    markDirty();
+    showToast('Background removed', 'success');
+  } catch (e) {
+    showToast('Remove BG failed: ' + e.message, 'error');
+  }
+}
+
 function preloadOverlayImages() {
   overlays.forEach((ov, i) => {
     if (ov.type === 'image' && ov.src) preloadSingleImage(i);
@@ -2055,6 +2082,163 @@ async function bulkRemoveLogo(input) {
   input.value = '';
 }
 
+function _ensureFolderProgressPanel() {
+  let el = document.getElementById('folder-progress');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'folder-progress';
+  el.style.cssText = [
+    'position:fixed','right:16px','top:80px','width:420px','max-width:92vw',
+    'max-height:calc(100vh - 120px)','display:flex','flex-direction:column',
+    'background:rgba(20,22,28,0.98)','color:#e6e8ee','border:1px solid #2a2f3a',
+    'border-radius:10px','box-shadow:0 10px 40px rgba(0,0,0,0.5)',
+    'font:13px/1.4 system-ui,sans-serif','z-index:99999','overflow:hidden',
+  ].join(';');
+  el.innerHTML = `
+    <div style="padding:10px 14px;background:#1a1d24;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2a2f3a">
+      <strong id="fp-title">Folder: Remove Logo</strong>
+      <button id="fp-close" style="background:none;border:0;color:#9aa0ab;cursor:pointer;font-size:18px;line-height:1">&times;</button>
+    </div>
+    <div style="padding:12px 14px">
+      <div id="fp-summary" style="margin-bottom:8px;color:#b4b9c4">Starting...</div>
+      <div style="height:6px;background:#2a2f3a;border-radius:3px;overflow:hidden;margin-bottom:10px">
+        <div id="fp-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#22d3ee);transition:width .2s"></div>
+      </div>
+      <div id="fp-list" style="flex:1;min-height:200px;overflow-y:auto;font-size:12px"></div>
+      <div id="fp-errsum" style="display:none;margin-top:8px;padding:6px 8px;background:#3a1f1f;border-left:3px solid #ef4444;color:#fecaca;font-size:11px;white-space:pre-wrap"></div>
+    </div>`;
+  document.body.appendChild(el);
+  el.querySelector('#fp-close').onclick = () => el.remove();
+  return el;
+}
+
+function _fpAddLine(file, status, extra) {
+  const list = document.getElementById('fp-list');
+  if (!list) return null;
+  const id = 'fp-row-' + (file.replace(/[^\w]+/g, '_'));
+  let row = document.getElementById(id);
+  if (!row) {
+    row = document.createElement('div');
+    row.id = id;
+    row.style.cssText = 'padding:3px 0;border-bottom:1px dashed #2a2f3a';
+    row.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:8px">
+        <span class="fp-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"></span>
+        <span class="fp-status" style="flex-shrink:0"></span>
+      </div>
+      <div class="fp-reason" style="display:none;color:#fca5a5;font-size:11px;margin-top:2px;word-break:break-word"></div>`;
+    list.appendChild(row);
+    row.querySelector('.fp-name').textContent = file;
+    row.querySelector('.fp-name').title = file;
+  }
+  const colors = { processing: '#fbbf24', ok: '#22c55e', skipped: '#9aa0ab', error: '#ef4444' };
+  const labels = { processing: 'processing...', ok: 'done', skipped: 'skipped', error: 'error' };
+  const s = row.querySelector('.fp-status');
+  s.textContent = labels[status] || status;
+  s.style.color = colors[status] || '#e6e8ee';
+  const reasonEl = row.querySelector('.fp-reason');
+  if ((status === 'error' || status === 'skipped') && extra) {
+    reasonEl.textContent = extra;
+    reasonEl.style.display = 'block';
+  }
+  list.scrollTop = list.scrollHeight;
+  return row;
+}
+
+async function folderRemoveLogo() {
+  const last = localStorage.getItem('folderRemoveLogo:lastPath') || '';
+  const folder = prompt(
+    'Enter the full path of the folder containing your PPTX files.\n' +
+    'Cleaned files will be written to "<folder>\\Slides Final".',
+    last
+  );
+  if (!folder || !folder.trim()) return;
+
+  const overwrite = confirm(
+    'Overwrite files in "Slides Final" if they already exist?\n\n' +
+    'OK = overwrite,  Cancel = skip existing files.'
+  );
+  localStorage.setItem('folderRemoveLogo:lastPath', folder.trim());
+
+  const panel = _ensureFolderProgressPanel();
+  const summary = panel.querySelector('#fp-summary');
+  const bar = panel.querySelector('#fp-bar');
+  const list = panel.querySelector('#fp-list');
+  list.innerHTML = '';
+  summary.textContent = 'Scanning folder...';
+  bar.style.width = '0%';
+
+  let total = 0, doneCount = 0;
+  const errorReasons = [];
+  try {
+    const resp = await fetch('/api/folder/remove-logo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder: folder.trim(), overwrite }),
+    });
+    if (!resp.ok || !resp.body) {
+      let msg = `Folder processing failed (${resp.status})`;
+      try { const d = await resp.json(); if (d.error) msg = d.error; } catch (e) {}
+      summary.textContent = msg;
+      summary.style.color = '#ef4444';
+      showToast(msg, 'error', 8000);
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let evt;
+        try { evt = JSON.parse(line); } catch (e) { continue; }
+
+        if (evt.type === 'start') {
+          total = evt.total || 0;
+          summary.innerHTML = `Processing <strong>${total}</strong> file${total === 1 ? '' : 's'}<br><span style="color:#9aa0ab;font-size:11px">→ ${evt.output_folder}</span>`;
+        } else if (evt.type === 'file') {
+          _fpAddLine(evt.file, evt.status, evt.error || evt.reason || '');
+          if (evt.status === 'error' && evt.error) {
+            errorReasons.push(`${evt.file}: ${evt.error}`);
+            console.warn('[folder-remove-logo]', evt.file, evt.error);
+          }
+          if (evt.status !== 'processing') {
+            doneCount = evt.index;
+            const pct = total ? Math.round((doneCount / total) * 100) : 0;
+            bar.style.width = pct + '%';
+          }
+        } else if (evt.type === 'done') {
+          bar.style.width = '100%';
+          const parts = [`${evt.ok}/${evt.total} cleaned`];
+          if (evt.skipped) parts.push(`${evt.skipped} skipped`);
+          if (evt.error) parts.push(`${evt.error} failed`);
+          summary.innerHTML = `<strong>${parts.join(' · ')}</strong><br><span style="color:#9aa0ab;font-size:11px">→ ${evt.output_folder}</span>`;
+          if (evt.error && errorReasons.length) {
+            const box = panel.querySelector('#fp-errsum');
+            const sample = errorReasons.slice(0, 3).join('\n');
+            const more = errorReasons.length > 3 ? `\n…and ${errorReasons.length - 3} more (see browser console)` : '';
+            box.textContent = `First error reasons:\n${sample}${more}`;
+            box.style.display = 'block';
+          }
+          showToast(parts.join(' · '), evt.error ? 'error' : 'success', 6000);
+        }
+      }
+    }
+  } catch (e) {
+    summary.textContent = 'Folder processing failed: ' + e.message;
+    summary.style.color = '#ef4444';
+    showToast('Folder processing failed: ' + e.message, 'error');
+  }
+}
+
 async function doUpload(file) {
   showLoading('Uploading & processing slides...');
   const form = new FormData();
@@ -2709,8 +2893,30 @@ async function undoWatermark(snapshot) {
   } catch (e) { hideLoading(); showToast('Undo error: ' + e.message, 'error'); }
 }
 
+function _parseSkipSlides(str) {
+  // "2,4,7-9" → [2,4,7,8,9]. Invalid tokens are silently skipped.
+  if (!str) return [];
+  const out = new Set();
+  String(str).split(',').forEach(tok => {
+    tok = tok.trim();
+    if (!tok) return;
+    const m = tok.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (m) {
+      let a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+      if (a > b) { const t = a; a = b; b = t; }
+      for (let i = a; i <= b; i++) if (i >= 1) out.add(i);
+    } else if (/^\d+$/.test(tok)) {
+      const n = parseInt(tok, 10);
+      if (n >= 1) out.add(n);
+    }
+  });
+  return Array.from(out).sort((a, b) => a - b);
+}
+
 async function applyWatermark() {
   const opacity = parseFloat(document.getElementById('wm-opacity').value);
+  const skipInput = document.getElementById('wm-skip');
+  const skipSlides = skipInput ? _parseSkipSlides(skipInput.value) : [];
 
   if (wmType === 'image') {
     const fileInput = document.getElementById('wm-image-input');
@@ -2724,6 +2930,7 @@ async function applyWatermark() {
     form.append('scale', scale);
     form.append('scope', wmScope);
     form.append('slide_num', currentSlide);
+    if (skipSlides.length) form.append('skip_slides', skipSlides.join(','));
     try {
       const resp = await fetch('/api/watermark-image', { method: 'POST', body: form });
       hideLoading();
@@ -2756,6 +2963,7 @@ async function applyWatermark() {
           tile_spacing: parseFloat(document.getElementById('wm-tile-spacing').value),
           scope: wmScope,
           slide_num: currentSlide,
+          skip_slides: skipSlides,
         }),
       });
       hideLoading();

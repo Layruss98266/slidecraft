@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue?style=flat-square&logo=python&logoColor=white"/>
   <img src="https://img.shields.io/badge/flask-3.x-green?style=flat-square&logo=flask&logoColor=white"/>
   <img src="https://img.shields.io/badge/features-45+-purple?style=flat-square"/>
-  <img src="https://img.shields.io/badge/routes-44-orange?style=flat-square"/>
+  <img src="https://img.shields.io/badge/routes-62-orange?style=flat-square"/>
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square"/>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square"/>
 </p>
@@ -59,7 +59,7 @@ Built with Flask + vanilla JS. No React, no build step. Just `python app.py` and
 | **Video → slides** | none | Drop a video → scene-change detection splits it into slides |
 | **YouTube / Vimeo / Loom embed** | none | Embed a URL as an overlay — plays in presentation mode |
 | **Per-slide audio narration** | none | Upload MP3/WAV — auto-plays in presentation mode |
-| **Background remover** | `pip install rembg` | Strips background from any image overlay |
+| **Background remover** | none | Strips background from any image overlay (rembg, bundled) |
 | **AI Rewrite / Translate / Alt-text / Slides** | install [Ollama](https://ollama.com) | Local LLM — no key, no fees, no data leaves your machine |
 | **Google OAuth login + share links** | Google Cloud OAuth, see [SETUP.md](SETUP.md) | Locks the app to your Google account; generates read-only share URLs |
 | **Google Slides export** | Google Cloud + refresh token, see [SETUP.md](SETUP.md) | Uploads the deck to your Drive as a real Google Slides presentation |
@@ -297,7 +297,7 @@ HOST=0.0.0.0 python app.py
 # Use a different port (e.g. if 5050 is taken)
 PORT=8080 python app.py
 
-# Allow larger uploads (default is 60 MB total per request)
+# Allow larger uploads (default is 1 GB total per request)
 MAX_UPLOAD_MB=200 python app.py
 
 # Combine multiple
@@ -383,7 +383,7 @@ python3 --version
 
 **Option A — Clone with Git** (recommended):
 ```bash
-git clone https://github.com/YOUR_USERNAME/slidecraft.git
+git clone https://github.com/Layruss98266/slidecraft.git
 cd slidecraft
 ```
 
@@ -401,17 +401,17 @@ This keeps SlideCraft's packages separate from your system Python.
 
 **Windows:**
 ```bash
-python -m venv venv
-venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\activate
 ```
 
 **macOS / Linux:**
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-> You'll see `(venv)` at the start of your terminal prompt when the virtual environment is active.
+> You'll see `(.venv)` at the start of your terminal prompt when the virtual environment is active.
 
 ---
 
@@ -432,6 +432,9 @@ This installs all required packages:
 | `moviepy` | Video audio handling & trimming | ~5 MB |
 | `numpy` | Array operations | (with opencv) |
 | `torch` | AI backend for EasyOCR | ~200-800 MB |
+| `rembg` | Background removal from image overlays | ~170 MB |
+| `pdf2image` | Higher-fidelity PPTX→PDF→JPG conversion | ~5 MB |
+| `PyMuPDF` | Fallback PDF→JPG renderer | ~15 MB |
 
 > **Note:** First install may take 2-5 minutes. The `torch` package is the largest (~200MB CPU-only).
 
@@ -440,9 +443,11 @@ If you get an error with `pip`, try:
 python -m pip install -r requirements.txt
 ```
 
-**Optional — for QR code generation:**
+**Optional — for QR code generation or Google integrations:**
 ```bash
-pip install qrcode[pil]
+pip install qrcode[pil]              # QR overlay generation
+pip install authlib                  # Google OAuth login
+pip install google-api-python-client google-auth google-auth-oauthlib  # Google Slides export
 ```
 
 ---
@@ -595,7 +600,7 @@ Press `?` in the editor to see the full cheatsheet.
 
 ```
 slidecraft/
-├── app.py                  # Flask backend — 44 API routes
+├── app.py                  # Flask backend — 62 API routes
 ├── requirements.txt        # Python dependencies
 ├── LICENSE                 # MIT license
 ├── .gitignore              # Git ignore rules
@@ -615,7 +620,7 @@ slidecraft/
 
 ---
 
-## API Reference (44 Routes)
+## API Reference (62 Routes)
 
 ### Slide Endpoints
 | Method | Endpoint | Description |
@@ -625,9 +630,18 @@ slidecraft/
 | `POST` | `/api/slide/<num>` | Save overlays + notes |
 | `POST` | `/api/slide/<num>/bake` | Burn overlays into slide image |
 | `POST` | `/api/slide/<num>/preview` | Render composite preview with overlays |
-| `POST` | `/api/slide/<num>/filter` | Apply image filter |
+| `POST` | `/api/slide/<num>/filter` | Apply image filter (single) |
+| `POST` | `/api/slide/<num>/filters` | Apply multiple image filters at once |
 | `POST` | `/api/slide/<num>/crop` | Crop slide image |
 | `POST` | `/api/slide/<num>/rotate` | Rotate slide image |
+| `POST` | `/api/slide/<num>/reset` | Reset slide to original (remove all edits) |
+| `POST` | `/api/slide/<num>/inpaint-region` | Inpaint a custom region on a slide |
+| `POST` | `/api/slide/<num>/delete` | Delete a slide |
+| `POST` | `/api/slide/<num>/duplicate` | Duplicate a slide |
+| `GET` | `/api/slide/<num>/download.png` | Download a single slide as PNG |
+| `GET` | `/api/deck/info` | Get current deck metadata (slide count, name) |
+| `POST` | `/api/save` | Save full deck state |
+| `POST` | `/api/reset-all` | Reset all slides to originals |
 | `POST` | `/api/upload` | Upload PPTX file |
 | `POST` | `/api/remove-logo` | Remove NotebookLM logo from all slides |
 | `POST` | `/api/reorder` | Reorder slides |
@@ -636,11 +650,19 @@ slidecraft/
 | `POST` | `/api/sample-color/<num>` | Sample bg color, text color, font weight |
 | `POST` | `/api/qr-generate` | Generate QR code image |
 | `POST` | `/api/watermark` | Add text watermark to all slides |
+| `POST` | `/api/watermark/preview/<num>` | Preview watermark on a single slide |
 | `POST` | `/api/watermark-image` | Add image/logo watermark to all slides |
 | `POST` | `/api/detect-watermark/<num>` | Auto-detect watermark regions in a slide |
 | `POST` | `/api/remove-watermark/<num>` | Remove watermark from single slide |
 | `POST` | `/api/remove-watermark-all` | Remove watermark from all slides |
+| `GET` | `/api/watermarks/applied` | List all applied watermarks with IDs |
+| `POST` | `/api/watermarks/revert/<entry_id>` | Revert a specific applied watermark |
+| `POST` | `/api/watermarks/clear-log` | Clear the watermark history log |
+| `GET` | `/api/ops/state` | Get current undo/redo stack state |
+| `POST` | `/api/ops/undo` | Undo last operation |
+| `POST` | `/api/ops/redo` | Redo last undone operation |
 | `POST` | `/api/find-replace` | Find and replace text in overlays |
+| `POST` | `/api/remove-background` | Strip background from a base64 image overlay (rembg) |
 
 ### Export Endpoints
 | Method | Endpoint | Description |
@@ -654,6 +676,7 @@ slidecraft/
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/batch/remove-logo` | Bulk upload up to 20 PPTX, remove logos, return ZIP |
+| `POST` | `/api/folder/remove-logo` | Remove logos from all PPTX files in a server folder |
 
 ### Template Endpoints
 | Method | Endpoint | Description |
@@ -764,5 +787,5 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 <p align="center">
   Built with Flask + Pillow + OpenCV + EasyOCR + MoviePy<br>
-  <strong>44 API routes | 45+ features | 0 build steps</strong>
+  <strong>62 API routes | 45+ features | 0 build steps</strong>
 </p>
