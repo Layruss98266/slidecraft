@@ -1,0 +1,193 @@
+/* SlideCraft — feature additions stylesheet (loaded after app.css). */
+
+/* ── High-contrast theme override ───────────────────────────────────────── */
+body.theme-hc {
+  --bg:           #000000;
+  --surface:      #0a0a0a;
+  --surface-2:    #141414;
+  --glass:        rgba(255,255,255,0.10);
+  --glass-border: rgba(255,255,255,0.40);
+  --glass-border-hover: rgba(255,255,255,0.70);
+  --text:         #FFFFFF;
+  --text2:        #E5E5E5;
+  --text3:        #BFBFBF;
+  --accent:       #FFEE00;
+  --accent2:      #00FFEA;
+  --danger:       #FF4D4D;
+  --success:      #00FF6B;
+}
+body.theme-hc * {
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+body.theme-hc .btn { border: 2px solid var(--text) !important; }
+body.theme-hc input, body.theme-hc textarea, body.theme-hc select {
+  border: 2px solid var(--text) !important;
+  background: #000 !important;
+  color: #fff !important;
+}
+
+/* ── Guides overlay (ruler ticks along edges) ───────────────────────────── */
+body.guides-on #slide-container::before,
+body.guides-on #slide-container::after {
+  content: '';
+  position: absolute;
+  background: repeating-linear-gradient(
+    to right,
+    rgba(167,139,250,0.55) 0,
+    rgba(167,139,250,0.55) 1px,
+    transparent 1px,
+    transparent 10%
+  );
+  pointer-events: none;
+  z-index: 5;
+}
+body.guides-on #slide-container::before {
+  top: 0; left: 0; right: 0; height: 4px;
+}
+body.guides-on #slide-container::after {
+  bottom: 0; left: 0; right: 0; height: 4px;
+  background: repeating-linear-gradient(
+    to right,
+    rgba(99,102,241,0.55) 0,
+    rgba(99,102,241,0.55) 1px,
+    transparent 1px,
+    transparent 5%
+  );
+}
+
+/* ── Laser pointer dot ──────────────────────────────────────────────────── */
+#laser-dot {
+  position: fixed;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ff0040 0%, rgba(255,0,64,0.6) 50%, transparent 70%);
+  box-shadow: 0 0 18px 4px rgba(255,0,64,0.7);
+  pointer-events: none;
+  z-index: 9999;
+  display: none;
+  transform: translate(-50%, -50%);
+}
+
+/* ── Presentation transitions ───────────────────────────────────────────── */
+#pres-canvas.pres-fade   { animation: presFade 280ms ease-out; }
+#pres-canvas.pres-slide  { animation: presSlide 320ms cubic-bezier(.2,.7,.2,1); }
+#pres-canvas.pres-zoom   { animation: presZoom 280ms ease-out; }
+@keyframes presFade  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes presSlide { from { transform: translateX(60px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes presZoom  { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* ── Palette swatches ───────────────────────────────────────────────────── */
+.palette-swatch {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  border: 2px solid rgba(255,255,255,0.2);
+  cursor: pointer;
+  transition: transform 120ms ease;
+  padding: 0;
+}
+.palette-swatch:hover { transform: scale(1.15); border-color: var(--accent2); }
+#feat-palette {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 8px;
+  min-height: 36px;
+}
+
+/* ── Speaker notes pane ─────────────────────────────────────────────────── */
+#feat-notes-textarea {
+  width: 100%;
+  min-height: 180px;
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 10px;
+  resize: vertical;
+  outline: none;
+}
+#feat-notes-textarea:focus { border-color: var(--accent2); }
+
+/* ── Master slide modal additions ───────────────────────────────────────── */
+.master-row {
+  display: grid; grid-template-columns: 120px 1fr; align-items: center;
+  gap: 10px; margin-bottom: 10px;
+}
+.master-row label { font-size: 12px; color: var(--text2); }
+.master-row input[type="color"] { width: 60px; height: 34px; padding: 0; border: 1px solid var(--glass-border); }
+
+/* ── Auth badge ─────────────────────────────────────────────────────────── */
+#auth-badge {
+  display: none;
+  align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text2);
+  padding: 4px 10px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+}
+
+/* ── Embed overlay placeholder (renders frame; play needs iframe in pres) ─ */
+.embed-overlay-marker {
+  background: rgba(99,102,241,0.15);
+  border: 2px dashed #6366F1;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 600; font-size: 14px;
+  border-radius: 6px;
+}
+
+/* ── New toolbar group for features ─────────────────────────────────────── */
+.tb-group-features {
+  display: flex; gap: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--glass-border);
+}
+.tb-group-features button {
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text2);
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tb-group-features button:hover {
+  background: var(--glass);
+  color: var(--text);
+  border-color: var(--accent2);
+}
+
+/* ── Align/Distribute toolbar (floating when multi-selected) ────────────── */
+#align-toolbar {
+  position: fixed;
+  bottom: 24px; left: 50%; transform: translateX(-50%);
+  display: none; gap: 4px;
+  background: rgba(20,28,50,0.95);
+  border: 1px solid var(--glass-border-hover);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  z-index: 150;
+}
+#align-toolbar.show { display: flex; }
+#align-toolbar button {
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 11px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+#align-toolbar button:hover {
+  background: var(--accent);
+  color: #fff;
+}
+#align-toolbar .sep { width: 1px; background: var(--glass-border); margin: 4px 2px; }
+
+/* Multi-selected layer item highlight in side panel */
+.ov-item.multi-selected {
+  outline: 2px dashed #A78BFA;
+  background: rgba(167,139,250,0.08);
+}

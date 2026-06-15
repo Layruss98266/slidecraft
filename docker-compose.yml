@@ -1,0 +1,38 @@
+services:
+  slidecraft:
+    build: .
+    container_name: slidecraft
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./exports:/app/exports
+      - ./videos:/app/videos
+      - ./history:/app/history
+      - ./templates_saved:/app/templates_saved
+      - ./themes_saved:/app/themes_saved
+      - ./audio:/app/audio
+      - ./static/slides:/app/static/slides
+      - ./slide_data.json:/app/slide_data.json
+    environment:
+      - MAX_UPLOAD_MB=1024
+      # Uncomment to enable Google OAuth:
+      # - GOOGLE_OAUTH_CLIENT_ID=
+      # - GOOGLE_OAUTH_CLIENT_SECRET=
+      # - SLIDECRAFT_SECRET_KEY=
+      # - SLIDECRAFT_ALLOWED_EMAILS=you@example.com
+      # Uncomment to point at an Ollama service:
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_MODEL=llama3.2:3b
+      # - OLLAMA_VISION_MODEL=llava:7b
+    restart: unless-stopped
+
+  # Optional: run a local Ollama alongside SlideCraft.
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ./ollama-data:/root/.ollama
+  #   restart: unless-stopped

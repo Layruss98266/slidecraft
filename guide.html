@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SlideCraft: Installation and Usage Guide</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f8f7;
+  --bg-tertiary: #f1f0ed;
+  --bg-info: #e6f1fb;
+  --bg-success: #eaf3de;
+  --bg-warning: #faeeda;
+  --bg-danger: #fcebeb;
+  --text-primary: #1a1a19;
+  --text-secondary: #5a5a58;
+  --text-tertiary: #8a8a87;
+  --text-info: #185fa5;
+  --text-success: #3b6d11;
+  --text-warning: #854f0b;
+  --text-danger: #a32d2d;
+  --border: rgba(0,0,0,0.12);
+  --border-med: rgba(0,0,0,0.2);
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1e1e1c;
+    --bg-secondary: #252523;
+    --bg-tertiary: #2c2c2a;
+    --bg-info: #042c53;
+    --bg-success: #173404;
+    --bg-warning: #412402;
+    --bg-danger: #501313;
+    --text-primary: #e8e8e6;
+    --text-secondary: #a8a8a5;
+    --text-tertiary: #6a6a67;
+    --text-info: #85b7eb;
+    --text-success: #97c459;
+    --text-warning: #ef9f27;
+    --text-danger: #f09595;
+    --border: rgba(255,255,255,0.1);
+    --border-med: rgba(255,255,255,0.18);
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  line-height: 1.6;
+}
+
+.guide {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--bg-secondary);
+  border-right: 0.5px solid var(--border);
+  padding: 1.5rem 1rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar .logo {
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 0.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.sidebar nav a {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 5px 8px;
+  border-radius: var(--radius-md);
+  margin-bottom: 2px;
+  transition: background 0.1s, color 0.1s;
+}
+.sidebar nav a:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.sidebar nav .nav-section {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 12px 8px 4px;
+}
+
+.content {
+  padding: 2.5rem 3rem 4rem;
+  background: var(--bg-primary);
+}
+
+h1 { font-size: 26px; font-weight: 500; margin-bottom: 0.5rem; }
+h2 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 2.5rem 0 0.5rem;
+  padding-top: 2rem;
+  border-top: 0.5px solid var(--border);
+}
+h3 { font-size: 15px; font-weight: 500; margin: 1.5rem 0 0.5rem; }
+p { font-size: 14px; line-height: 1.75; color: var(--text-secondary); margin-bottom: 0.85rem; }
+a { color: var(--text-info); }
+ul, ol { padding-left: 1.25rem; }
+li { font-size: 14px; color: var(--text-secondary); margin-bottom: 0.4rem; line-height: 1.6; }
+
+.lead { font-size: 15px; color: var(--text-secondary); margin-bottom: 1.25rem; line-height: 1.8; }
+
+.badge-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.75rem; }
+.badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--bg-info);
+  color: var(--text-info);
+}
+.badge.green { background: var(--bg-success); color: var(--text-success); }
+.badge.warn  { background: var(--bg-warning); color: var(--text-warning); }
+
+.steps { counter-reset: step; list-style: none; margin: 1rem 0; padding: 0; }
+.steps li {
+  counter-increment: step;
+  display: flex;
+  gap: 14px;
+  margin-bottom: 1.25rem;
+  align-items: flex-start;
+}
+.steps li::before {
+  content: counter(step);
+  min-width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--bg-info);
+  color: var(--text-info);
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.steps li .step-body { font-size: 14px; line-height: 1.7; color: var(--text-secondary); }
+.steps li .step-body strong { color: var(--text-primary); font-weight: 500; }
+.steps li .step-note { font-size: 12.5px; color: var(--text-tertiary); margin-top: 4px; }
+
+pre {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.875rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-x: auto;
+  margin: 0.75rem 0 1rem;
+  color: var(--text-primary);
+}
+code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--bg-secondary);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-primary);
+  border: 0.5px solid var(--border);
+}
+
+kbd {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border-med);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.tip, .warn-box, .danger-box {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  padding: 0.75rem 1rem;
+  font-size: 13px;
+  margin: 1rem 0;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  line-height: 1.6;
+}
+.tip { border-left: 2px solid var(--text-info); background: var(--bg-info); color: var(--text-info); }
+.warn-box { border-left: 2px solid var(--text-warning); background: var(--bg-warning); color: var(--text-warning); }
+.danger-box { border-left: 2px solid var(--text-danger); background: var(--bg-danger); color: var(--text-danger); }
+.tip i, .warn-box i, .danger-box i { margin-top: 1px; flex-shrink: 0; font-size: 16px; }
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 1rem 0 1.25rem;
+}
+.feat-card {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+}
+.feat-card .icon { font-size: 22px; margin-bottom: 8px; color: var(--text-info); }
+.feat-card h4 { font-size: 13px; font-weight: 500; margin-bottom: 5px; color: var(--text-primary); }
+.feat-card p { font-size: 12.5px; line-height: 1.55; margin: 0; }
+
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+  margin: 1rem 0;
+}
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 7px 0;
+  border-bottom: 0.5px solid var(--border);
+  gap: 8px;
+}
+.shortcut-row span { color: var(--text-secondary); }
+
+.env-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0.75rem 0; }
+.env-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 6px 8px;
+  border-bottom: 0.5px solid var(--border);
+}
+.env-table td {
+  padding: 9px 8px;
+  border-bottom: 0.5px solid var(--border);
+  color: var(--text-secondary);
+  vertical-align: top;
+  line-height: 1.55;
+}
+.env-table td:first-child { font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); white-space: nowrap; }
+.env-table td:nth-child(2) { font-family: var(--font-mono); font-size: 12px; color: var(--text-tertiary); }
+
+.platform-tabs { display: flex; gap: 6px; margin-bottom: -1px; flex-wrap: wrap; }
+.ptab {
+  font-size: 12px;
+  padding: 5px 14px;
+  border: 0.5px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+}
+.ptab.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.pane {
+  display: none;
+  border: 0.5px solid var(--border);
+  border-radius: 0 var(--radius-md) var(--radius-md) var(--radius-md);
+  padding: 1rem;
+  background: var(--bg-primary);
+  margin-bottom: 1rem;
+}
+.pane.active { display: block; }
+.pane pre { margin: 0; border: none; padding: 0; background: none; }
+
+.export-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 0.5px solid var(--border);
+  font-size: 13px;
+}
+.export-row:last-child { border-bottom: none; }
+.export-badge {
+  min-width: 64px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.export-row .export-desc { color: var(--text-secondary); line-height: 1.6; }
+.export-row .export-title { font-weight: 500; color: var(--text-primary); margin-bottom: 2px; font-size: 13px; }
+
+.trouble-row {
+  padding: 12px 0;
+  border-bottom: 0.5px solid var(--border);
+  font-size: 13px;
+}
+.trouble-row:last-child { border-bottom: none; }
+.trouble-row .prob {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.trouble-row .fix { color: var(--text-secondary); line-height: 1.7; }
+
+.section-anchor { scroll-margin-top: 1.5rem; }
+
+.pkg-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0.75rem 0 1.25rem; }
+.pkg-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 6px 8px;
+  border-bottom: 0.5px solid var(--border);
+}
+.pkg-table td {
+  padding: 8px 8px;
+  border-bottom: 0.5px solid var(--border);
+  color: var(--text-secondary);
+  vertical-align: top;
+  line-height: 1.5;
+}
+.pkg-table td:first-child { font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); white-space: nowrap; }
+.pkg-table td:last-child { color: var(--text-tertiary); font-size: 12px; }
+
+.flow-steps {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.5rem;
+  margin: 1rem 0;
+  counter-reset: flowstep;
+}
+.flow-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--border);
+  counter-increment: flowstep;
+}
+.flow-step:last-child { border-bottom: none; }
+.flow-step::before {
+  content: counter(flowstep);
+  min-width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-info);
+  color: var(--text-info);
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.flow-step .fa { font-size: 13px; color: var(--text-secondary); }
+.flow-step .fa strong { color: var(--text-primary); }
+.flow-step .fa span { color: var(--text-tertiary); font-size: 12px; margin-left: 8px; }
+
+@media (max-width: 700px) {
+  .guide { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; }
+  .content { padding: 1.5rem; }
+  .shortcut-grid { grid-template-columns: 1fr; }
+  .feature-grid { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="guide">
+  <aside class="sidebar">
+    <div class="logo">
+      <i class="ti ti-presentation"></i> SlideCraft
+    </div>
+    <nav>
+      <div class="nav-section">Getting started</div>
+      <a href="#what-is">What is SlideCraft?</a>
+      <a href="#requirements">Before you install</a>
+      <a href="#install">Installation</a>
+      <a href="#run">Starting the app</a>
+      <div class="nav-section">Using the tools</div>
+      <a href="#upload">Uploading slides</a>
+      <a href="#drawing">Drawing tools</a>
+      <a href="#ocr">Editing text with OCR</a>
+      <a href="#logo-removal">Removing logos</a>
+      <a href="#bg-removal">Background removal</a>
+      <a href="#filters">Image filters</a>
+      <a href="#manage">Templates and history</a>
+      <a href="#ai">AI tools</a>
+      <a href="#presentation">Presenting</a>
+      <a href="#export">Exporting</a>
+      <div class="nav-section">Reference</div>
+      <a href="#shortcuts">Keyboard shortcuts</a>
+      <a href="#env-vars">Configuration</a>
+      <a href="#troubleshoot">Troubleshooting</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+
+    <div id="what-is" class="section-anchor">
+      <h1>SlideCraft guide</h1>
+      <p class="lead">SlideCraft is a free, local slide editor that runs in your browser. It was built specifically for editing image-based presentations like those exported from NotebookLM, Gamma, or similar tools. You can fix text, remove watermarks, add shapes, apply filters, and export a clean PPTX file. Everything runs on your own machine, so nothing leaves your computer.</p>
+      <div class="badge-row">
+        <span class="badge">Python 3.10+</span>
+        <span class="badge">Flask 3.x</span>
+        <span class="badge green">Runs on your machine</span>
+        <span class="badge green">No build step needed</span>
+        <span class="badge warn">No cloud, no subscription</span>
+      </div>
+    </div>
+
+    <h2 id="requirements" class="section-anchor">Before you install</h2>
+    <p>You only need three things before getting started. Here is what each one does and how to check if you already have it.</p>
+    <ul class="steps">
+      <li>
+        <div class="step-body">
+          <strong>Python 3.10 or newer.</strong> This is the programming language SlideCraft is built on. Open a terminal and type <code>python --version</code> to check. If it says 3.10 or higher, you are good. If not, download it from <a href="https://python.org/downloads" target="_blank">python.org</a>. On Windows, make sure to tick the <strong>"Add Python to PATH"</strong> checkbox during installation or things will not work properly.
+          <div class="step-note">On macOS and Linux you may need to type <code>python3 --version</code> instead.</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>pip</strong> (Python's package installer). This is used to install SlideCraft's dependencies. It comes bundled with Python automatically. Check it works by running <code>pip --version</code>.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>LibreOffice</strong> (strongly recommended). SlideCraft uses LibreOffice to convert your PPTX slides into images. Without it, slides will look incomplete since only embedded pictures will be extracted and all text and shapes will be missing. Download it for free from <a href="https://www.libreoffice.org/download/" target="_blank">libreoffice.org</a>.
+        </div>
+      </li>
+    </ul>
+    <div class="tip">
+      <i class="ti ti-info-circle"></i>
+      <div>LibreOffice is technically optional but you will notice a significant difference in slide quality with it installed. It takes about 5 minutes to set up and is worth it.</div>
+    </div>
+
+    <h2 id="install" class="section-anchor">Installation</h2>
+    <p>The setup takes about 5 to 10 minutes the first time, mostly waiting for packages to download. Follow these steps in order.</p>
+
+    <h3>Step 1: Get the code</h3>
+    <p>If you have Git installed, run this in your terminal:</p>
+    <pre>git clone https://github.com/Layruss98266/slidecraft.git
+cd slidecraft</pre>
+    <p>If you do not have Git, that is fine. Go to the GitHub page, click the green <strong>Code</strong> button, choose <strong>Download ZIP</strong>, then extract the folder somewhere on your computer and open a terminal inside it.</p>
+
+    <h3>Step 2: Create a virtual environment</h3>
+    <p>A virtual environment keeps SlideCraft's packages separate from everything else on your computer. It is good practice and prevents version conflicts. Run the command for your operating system:</p>
+    <div class="platform-tabs">
+      <button class="ptab active" onclick="showTab(this,'vwin')">Windows</button>
+      <button class="ptab" onclick="showTab(this,'vmac')">macOS</button>
+      <button class="ptab" onclick="showTab(this,'vlinux')">Linux</button>
+    </div>
+    <div id="pane-vwin" class="pane active"><pre>python -m venv .venv
+.venv\Scripts\activate</pre></div>
+    <div id="pane-vmac" class="pane"><pre>python3 -m venv .venv
+source .venv/bin/activate</pre></div>
+    <div id="pane-vlinux" class="pane"><pre>python3 -m venv .venv
+source .venv/bin/activate</pre></div>
+    <p>Once activated, you will see <code>(.venv)</code> at the beginning of your terminal prompt. You need to activate it every time you open a new terminal before running the app.</p>
+
+    <h3>Step 3: Install the dependencies</h3>
+    <pre>pip install -r requirements.txt</pre>
+    <p>This downloads everything SlideCraft needs to run. It only needs to happen once. The first install takes a few minutes because some packages like PyTorch (used for OCR) are quite large.</p>
+
+    <div class="warn-box">
+      <i class="ti ti-alert-triangle"></i>
+      <div>If <code>pip</code> gives you an error, try <code>python -m pip install -r requirements.txt</code> instead. Some systems require the longer form.</div>
+    </div>
+
+    <h3>What gets installed</h3>
+    <p>Here is a breakdown of the main packages and what they do:</p>
+    <table class="pkg-table">
+      <thead><tr><th>Package</th><th>What it does</th><th>Download size</th></tr></thead>
+      <tbody>
+        <tr><td>flask</td><td>Runs the local web server</td><td>~2 MB</td></tr>
+        <tr><td>python-pptx</td><td>Reads and writes PowerPoint files</td><td>~5 MB</td></tr>
+        <tr><td>Pillow</td><td>Handles image processing and filters</td><td>~10 MB</td></tr>
+        <tr><td>opencv-python-headless</td><td>Powers the inpainting (logo removal) and video frame processing</td><td>~40 MB</td></tr>
+        <tr><td>easyocr</td><td>Detects and reads text on slides</td><td>~150 MB</td></tr>
+        <tr><td>moviepy</td><td>Handles video audio tracks and trimming</td><td>~5 MB</td></tr>
+        <tr><td>rembg</td><td>Removes backgrounds from image overlays</td><td>~170 MB</td></tr>
+        <tr><td>pdf2image</td><td>Converts PDF pages to high-quality images</td><td>~5 MB</td></tr>
+        <tr><td>PyMuPDF</td><td>Backup PDF renderer if pdf2image is unavailable</td><td>~15 MB</td></tr>
+        <tr><td>torch</td><td>The AI engine behind EasyOCR</td><td>200 to 800 MB</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Optional extras</h3>
+    <p>These are not installed by default. Add them only if you need the specific feature:</p>
+    <pre># For generating QR code overlays on slides
+pip install qrcode[pil]
+
+# For logging in with Google and exporting to Google Slides
+pip install authlib google-api-python-client google-auth google-auth-oauthlib</pre>
+
+    <h2 id="run" class="section-anchor">Starting the app</h2>
+
+    <h3>The easy way (recommended)</h3>
+    <p>Use the launcher script included in the project. It handles activating the virtual environment and starting the server for you automatically:</p>
+    <div class="platform-tabs">
+      <button class="ptab active" onclick="showTab(this,'rwin')">Windows (Command Prompt)</button>
+      <button class="ptab" onclick="showTab(this,'rps')">Windows (PowerShell)</button>
+      <button class="ptab" onclick="showTab(this,'rmac')">macOS and Linux</button>
+    </div>
+    <div id="pane-rwin" class="pane active"><pre>run.bat</pre></div>
+    <div id="pane-rps" class="pane"><pre>.\run.ps1</pre></div>
+    <div id="pane-rmac" class="pane"><pre>./run.sh</pre></div>
+
+    <h3>The manual way</h3>
+    <p>If you prefer to start it yourself, activate your virtual environment first, then run:</p>
+    <pre>python app.py</pre>
+    <p>Once you see the message <code>Running on http://127.0.0.1:5050</code>, open your browser and go to that address. Press <kbd>Ctrl+C</kbd> in the terminal whenever you want to stop the server.</p>
+    <div class="tip">
+      <i class="ti ti-check"></i>
+      <div>Your slides, overlays, and version history are saved to disk. Stopping and restarting the server will not lose your work.</div>
+    </div>
+
+    <h3>Your first time using it</h3>
+    <p>Here is what the typical workflow looks like from start to finish:</p>
+    <div class="flow-steps">
+      <div class="flow-step"><div class="fa"><strong>Start the launcher</strong> <span>Server starts at http://127.0.0.1:5050</span></div></div>
+      <div class="flow-step"><div class="fa"><strong>Open your browser and go to that address</strong> <span>You will see an empty editor</span></div></div>
+      <div class="flow-step"><div class="fa"><strong>Click Upload and pick your .pptx file</strong> <span>Slides appear in the panel on the left</span></div></div>
+      <div class="flow-step"><div class="fa"><strong>Edit, remove logos, fix text, add shapes</strong> <span>Changes are saved automatically every 8 seconds</span></div></div>
+      <div class="flow-step"><div class="fa"><strong>Click Export and choose your format</strong> <span>Download the finished file</span></div></div>
+    </div>
+
+    <h2 id="upload" class="section-anchor">Uploading slides</h2>
+    <p>To load a presentation, either click the <strong>Upload</strong> button in the header or simply drag a <code>.pptx</code> file anywhere onto the editor window. SlideCraft will convert each slide into an image and display them in the strip on the left.</p>
+    <p>The conversion quality depends on what software you have installed. SlideCraft tries each method in this order:</p>
+    <ul class="steps">
+      <li>
+        <div class="step-body">
+          <strong>LibreOffice + pdf2image (best quality).</strong> Converts the PPTX to a PDF first using LibreOffice, then renders each page as a high-resolution image. Fonts, shadows, and gradients all look exactly as they do in PowerPoint.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>LibreOffice + PyMuPDF (very good quality).</strong> Same first step but uses a different library to render the PDF. Used as a fallback if pdf2image is not available.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>Pillow extraction (limited).</strong> Used only when LibreOffice is not installed. It pulls out the embedded images from the PPTX file but cannot capture text or drawn shapes. Your slides may look incomplete.
+        </div>
+      </li>
+    </ul>
+    <div class="tip">
+      <i class="ti ti-info-circle"></i>
+      <div>You can also upload up to 20 PPTX files at once using the batch upload feature. SlideCraft will remove logos from all of them and give you a ZIP file to download.</div>
+    </div>
+
+    <h2 id="drawing" class="section-anchor">Drawing tools</h2>
+    <p>You can place various shapes and elements on top of any slide. Everything you add is called an "overlay." Overlays sit on top of the slide image and can be moved, resized, or deleted at any time before you bake them in.</p>
+    <div class="feature-grid">
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-cursor-text"></i></div>
+        <h4>Text box</h4>
+        <p>Add styled text anywhere. Control font, size, color, weight, shadow, outline, and spacing. Press <kbd>T</kbd> to activate.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-rectangle"></i></div>
+        <h4>Rectangle</h4>
+        <p>Draw a filled rectangle. Good for highlighting areas or covering content. Press <kbd>R</kbd>.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-circle"></i></div>
+        <h4>Circle</h4>
+        <p>Draw circles and ellipses with a fill color of your choice.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-arrow-right"></i></div>
+        <h4>Arrow and line</h4>
+        <p>Draw straight lines, with or without arrowheads. Great for pointing to things.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-message"></i></div>
+        <h4>Callout bubble</h4>
+        <p>A speech bubble shape for adding comments or annotations to specific areas.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-pencil"></i></div>
+        <h4>Freehand</h4>
+        <p>Draw anything with your mouse. Useful for circling things or adding a signature.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-eraser"></i></div>
+        <h4>Cover and type</h4>
+        <p>Draw a box over text you want to replace, then type the new text on top. Press <kbd>C</kbd>.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-photo"></i></div>
+        <h4>Image overlay</h4>
+        <p>Upload a photo, logo, or icon and place it anywhere on the slide. Adjust size and opacity.</p>
+      </div>
+    </div>
+    <p>Every overlay can be resized using the 8 handles around its edges, moved by dragging, and right-clicked for options like duplicate, delete, or changing its layer order. You get 50 steps of undo history per slide with <kbd>Ctrl+Z</kbd>.</p>
+
+    <h2 id="ocr" class="section-anchor">Editing text with OCR</h2>
+    <p>OCR stands for Optical Character Recognition. SlideCraft uses it to detect the text that is already baked into your slide images, so you can click on it and replace it without needing the original source file.</p>
+    <ul class="steps">
+      <li>
+        <div class="step-body">
+          <strong>Click the OCR button in the toolbar.</strong> SlideCraft scans the slide and draws blue dashed boxes around every piece of text it detects. This may take a few seconds.
+          <div class="step-note">The first time you click OCR, it downloads the detection model (~100 MB). After that, it is instant.</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>Click on any blue box to select that text region.</strong> SlideCraft automatically samples the background color, text color, and font weight from that area and creates a cover overlay that matches the original style.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>Edit the text in the Properties panel on the right.</strong> Change the content, adjust the font, size, color, alignment, or letter spacing until it looks right.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>Click Apply when you are done.</strong> This permanently bakes all your overlays into the slide image. After this point you cannot undo individual changes to that slide, so save a version first if you want a safety net.
+        </div>
+      </li>
+    </ul>
+    <div class="warn-box">
+      <i class="ti ti-alert-triangle"></i>
+      <div>Clicking Apply is permanent for that slide. Before you apply, use <strong>Save Version</strong> from the History panel if you want to be able to go back.</div>
+    </div>
+
+    <h2 id="logo-removal" class="section-anchor">Removing logos and watermarks</h2>
+
+    <h3>Remove an existing watermark</h3>
+    <p>SlideCraft uses OpenCV's inpainting algorithm to fill in the area where the logo was, sampling from the surrounding pixels to make it look seamless. It works well on simple backgrounds like gradients and solid colors.</p>
+    <ul class="steps">
+      <li>
+        <div class="step-body">
+          <strong>Click Remove Logo in the header</strong> to strip the NotebookLM watermark from every slide in one go. This is the quickest option when you know exactly where the logo is.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>Or use Detect Watermark for more control.</strong> SlideCraft scans the slide corners using edge analysis to locate the logo automatically. You can then choose to remove it from just the current slide or all slides at once.
+        </div>
+      </li>
+    </ul>
+
+    <h3>Add your own watermark</h3>
+    <p>You can also stamp your own branding onto all slides at once using the <strong>Watermark</strong> tool. Add a text label like "CONFIDENTIAL" or "DRAFT", or upload a logo image. You can control where it appears (center, any corner, or tiled across the slide), how transparent it is (5% to 80%), and how large it is. A live preview shows you what it will look like before you commit.</p>
+
+    <h2 id="bg-removal" class="section-anchor">Removing backgrounds from images</h2>
+    <p>If you have uploaded a logo or photo as an image overlay and it has a white or solid-colored background, you can remove it to get a transparent cutout. This is useful when you want your logo to sit cleanly on top of a slide without an ugly white box behind it.</p>
+    <ul class="steps">
+      <li>
+        <div class="step-body">
+          <strong>Add an image overlay</strong> to your slide using the image tool in the toolbar, or drag an image file directly onto the slide.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>Click the image to select it.</strong> You will see a blue border appear around it.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>Click Remove BG in the toolbar.</strong> The background is removed using an AI model called U2Net (built into the rembg package). The result is a transparent PNG with just your subject remaining.
+          <div class="step-note">First use downloads the U2Net model (~170 MB). You can undo the result with Ctrl+Z if you are not happy with it.</div>
+        </div>
+      </li>
+    </ul>
+
+    <h2 id="filters" class="section-anchor">Image filters</h2>
+    <p>Filters let you adjust the look of the entire slide image. Open the <strong>Filters</strong> tab in the right panel to access them. They apply instantly so you can see the result straight away, and they are non-destructive until you click Apply.</p>
+    <div class="feature-grid">
+      <div class="feat-card"><h4>Brightness</h4><p>Make the whole slide lighter or darker.</p></div>
+      <div class="feat-card"><h4>Contrast</h4><p>Increase the difference between light and dark areas, or flatten it out.</p></div>
+      <div class="feat-card"><h4>Saturation</h4><p>Boost the color intensity or tone it down toward gray.</p></div>
+      <div class="feat-card"><h4>Blur</h4><p>Apply a soft Gaussian blur to the slide.</p></div>
+      <div class="feat-card"><h4>Sharpen</h4><p>Add crispness to a soft or compressed slide image.</p></div>
+      <div class="feat-card"><h4>Grayscale</h4><p>Convert the slide to black and white.</p></div>
+      <div class="feat-card"><h4>Sepia</h4><p>Give the slide a warm, vintage brown tone.</p></div>
+      <div class="feat-card"><h4>Reset</h4><p>Undo all filter changes and return to the original image.</p></div>
+    </div>
+
+    <h2 id="manage" class="section-anchor">Templates and version history</h2>
+
+    <h3>Version history</h3>
+    <p>Think of this as a manual save point system. Before you do something that cannot be undone, like applying overlays, removing a logo, or cropping a slide, click <strong>Save Version</strong> in the History panel. SlideCraft takes a snapshot of everything in its current state. If something goes wrong, you can go back to that snapshot by clicking <strong>Restore</strong>.</p>
+
+    <h3>Templates</h3>
+    <p>If you work with a consistent slide style and want to reuse it, save your current deck as a named template. This saves the slides and all overlays together. You can load that template into any new session to start from a ready-made layout instead of from scratch.</p>
+
+    <h3>Master slide</h3>
+    <p>The master slide lets you apply consistent branding across your entire deck in one action. Set a header, footer, page numbers, and brand colors and they will propagate to every slide automatically.</p>
+
+    <h3>Auto-save</h3>
+    <p>SlideCraft saves your overlay changes automatically every 8 seconds in the background. You will see a pulsing orange dot in the header when there are unsaved changes, and a green checkmark when everything is up to date. You do not need to manually save as you work.</p>
+
+    <h2 id="ai" class="section-anchor">AI tools</h2>
+    <p>SlideCraft has four AI-powered tools for editing and generating slide content. They all run locally through <a href="https://ollama.com" target="_blank">Ollama</a>, which means no API keys, no data sent to the cloud, and no usage fees.</p>
+
+    <h3>Setting up Ollama</h3>
+    <ul class="steps">
+      <li>
+        <div class="step-body">
+          <strong>Download and install Ollama</strong> from <a href="https://ollama.com" target="_blank">ollama.com</a>. It works on Windows, Mac, and Linux.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>Download a language model.</strong> Open a terminal and run: <code>ollama pull llama3</code>. This downloads the model (a few gigabytes) and only needs to happen once.
+        </div>
+      </li>
+      <li>
+        <div class="step-body">
+          <strong>Make sure Ollama is running</strong> before using any AI button in SlideCraft. You can start it by running <code>ollama serve</code> in a terminal, or it may already be running in your system tray after installation.
+        </div>
+      </li>
+    </ul>
+
+    <div class="feature-grid">
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-wand"></i></div>
+        <h4>AI Rewrite</h4>
+        <p>Select a text overlay and click AI Rewrite. It will rewrite the content to be more concise or professional while keeping the meaning.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-language"></i></div>
+        <h4>AI Translate</h4>
+        <p>Translate the selected text overlay into any language. Useful for localizing slides.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-eye"></i></div>
+        <h4>AI Alt-text</h4>
+        <p>Generates a plain-English description of the current slide for accessibility purposes.</p>
+      </div>
+      <div class="feat-card">
+        <div class="icon"><i class="ti ti-sparkles"></i></div>
+        <h4>AI Slides</h4>
+        <p>Type a prompt and SlideCraft will generate slide content and a layout for you.</p>
+      </div>
+    </div>
+
+    <h2 id="presentation" class="section-anchor">Presenting your slides</h2>
+    <p>SlideCraft has a built-in fullscreen presentation mode so you can show your slides directly from the editor without exporting first.</p>
+    <ul>
+      <li>Press <kbd>F5</kbd> to enter fullscreen presentation mode.</li>
+      <li>Use <kbd>Left Arrow</kbd> and <kbd>Right Arrow</kbd> to move between slides.</li>
+      <li>Press <kbd>L</kbd> to enable a red laser pointer dot that follows your cursor.</li>
+      <li>Slides transition with fade, slide, or zoom effects depending on your settings.</li>
+      <li>If you have uploaded audio narration for a slide (MP3 or WAV), it will play automatically.</li>
+      <li>YouTube, Vimeo, and Loom video embeds will play inline during the presentation.</li>
+      <li>Press <kbd>Esc</kbd> to go back to the editor.</li>
+    </ul>
+
+    <h2 id="export" class="section-anchor">Exporting your work</h2>
+    <p>When you are happy with your slides, use the Export button in the toolbar to download them. Choose the format that works best for your situation:</p>
+    <div>
+      <div class="export-row">
+        <span class="export-badge">PPTX</span>
+        <div>
+          <div class="export-title">PowerPoint file</div>
+          <div class="export-desc">Exports a .pptx file with your slides as images and all text overlays as real editable text layers. Opens in PowerPoint, LibreOffice, or Google Slides. This is the best choice if you need to keep editing the file elsewhere.</div>
+        </div>
+      </div>
+      <div class="export-row">
+        <span class="export-badge">PDF</span>
+        <div>
+          <div class="export-title">PDF document</div>
+          <div class="export-desc">Creates a multi-page PDF with one slide per page. Great for sharing with people who just need to view the content, or for printing.</div>
+        </div>
+      </div>
+      <div class="export-row">
+        <span class="export-badge">PNG</span>
+        <div>
+          <div class="export-title">Image files (ZIP)</div>
+          <div class="export-desc">Downloads a ZIP file containing one full-resolution PNG image for each slide. Useful if you need to upload individual slide images somewhere else.</div>
+        </div>
+      </div>
+      <div class="export-row">
+        <span class="export-badge">GIF</span>
+        <div>
+          <div class="export-title">Animated GIF</div>
+          <div class="export-desc">Creates a looping animated GIF of all slides. You can set how long each slide stays on screen. Good for social media or embedding in docs.</div>
+        </div>
+      </div>
+      <div class="export-row">
+        <span class="export-badge">Apply</span>
+        <div>
+          <div class="export-title">Bake overlays into slides</div>
+          <div class="export-desc">This is not an export format. Clicking Apply permanently merges all your overlays into the slide images so there are no separate layers. Do this before PNG or GIF export if you want everything merged into a single flat image per slide.</div>
+        </div>
+      </div>
+      <div class="export-row">
+        <span class="export-badge">.slidecraft</span>
+        <div>
+          <div class="export-title">Portable archive</div>
+          <div class="export-desc">A single file that contains everything: slides, overlays, comments, and master slide settings. You can import it into any SlideCraft instance to pick up exactly where you left off.</div>
+        </div>
+      </div>
+    </div>
+
+    <h2 id="shortcuts" class="section-anchor">Keyboard shortcuts</h2>
+    <p>Press <kbd>?</kbd> at any time while in the editor to open the full shortcut reference overlay. The most useful ones are listed here:</p>
+    <div class="shortcut-grid">
+      <div class="shortcut-row"><span>Select / move tool</span><kbd>S</kbd></div>
+      <div class="shortcut-row"><span>Text tool</span><kbd>T</kbd></div>
+      <div class="shortcut-row"><span>Rectangle tool</span><kbd>R</kbd></div>
+      <div class="shortcut-row"><span>Cover and type</span><kbd>C</kbd></div>
+      <div class="shortcut-row"><span>Toggle snap grid</span><kbd>G</kbd></div>
+      <div class="shortcut-row"><span>Show all shortcuts</span><kbd>?</kbd></div>
+      <div class="shortcut-row"><span>Enter presentation mode</span><kbd>F5</kbd></div>
+      <div class="shortcut-row"><span>Laser pointer (in presentation)</span><kbd>L</kbd></div>
+      <div class="shortcut-row"><span>Undo</span><kbd>Ctrl+Z</kbd></div>
+      <div class="shortcut-row"><span>Redo</span><kbd>Ctrl+Y</kbd></div>
+      <div class="shortcut-row"><span>Copy selected overlay</span><kbd>Ctrl+C</kbd></div>
+      <div class="shortcut-row"><span>Paste overlay</span><kbd>Ctrl+V</kbd></div>
+      <div class="shortcut-row"><span>Save current slide</span><kbd>Ctrl+S</kbd></div>
+      <div class="shortcut-row"><span>Delete selected overlay</span><kbd>Delete</kbd></div>
+      <div class="shortcut-row"><span>Go to previous or next slide</span><kbd>Left / Right</kbd></div>
+      <div class="shortcut-row"><span>Toggle guide lines</span><kbd>Ctrl+'</kbd></div>
+      <div class="shortcut-row"><span>Toggle high-contrast theme</span><kbd>Ctrl+Shift+H</kbd></div>
+      <div class="shortcut-row"><span>Close modal or exit fullscreen</span><kbd>Esc</kbd></div>
+    </div>
+
+    <h2 id="env-vars" class="section-anchor">Configuration</h2>
+    <p>These settings are all optional. The defaults work fine for most people. If you need to change any of them, set the environment variable before running <code>python app.py</code>.</p>
+    <table class="env-table">
+      <thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>PORT</td><td>5050</td><td>The port number the server listens on. Change this if port 5050 is already in use on your machine.</td></tr>
+        <tr><td>HOST</td><td>127.0.0.1</td><td>Set this to <code>0.0.0.0</code> if you want other devices on your local network to be able to open the editor. Only do this on a trusted network since there is no login by default.</td></tr>
+        <tr><td>FLASK_DEBUG</td><td>false</td><td>Set to <code>true</code> during development. The server will automatically restart whenever you change the code.</td></tr>
+        <tr><td>MAX_UPLOAD_MB</td><td>1024</td><td>The maximum total upload size in megabytes. The default is 1 GB which is plenty for most uses. Raise it if you are batch uploading very large files with embedded video.</td></tr>
+        <tr><td>EXPORT_TTL_SECONDS</td><td>86400</td><td>How many seconds exported files are kept before being deleted automatically. The default is 24 hours.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>How to set them on Windows (PowerShell)</h3>
+    <pre>$env:PORT = "8080"
+$env:HOST = "0.0.0.0"
+python app.py</pre>
+
+    <h3>How to set them on macOS and Linux</h3>
+    <pre>PORT=8080 HOST=0.0.0.0 python app.py</pre>
+
+    <h2 id="troubleshoot" class="section-anchor">Troubleshooting</h2>
+    <p>If something is not working as expected, check the list below. Most issues have a quick fix.</p>
+    <div>
+      <div class="trouble-row">
+        <div class="prob"><i class="ti ti-alert-circle" style="color:var(--text-danger)"></i> Slides look blank or only show some images after upload</div>
+        <div class="fix">This happens when LibreOffice is not installed. Without it, SlideCraft can only extract the images that are embedded directly in the PPTX file. Any text and shapes drawn in PowerPoint will be invisible. Install LibreOffice from <a href="https://www.libreoffice.org/download/" target="_blank">libreoffice.org</a> and try uploading again.</div>
+      </div>
+      <div class="trouble-row">
+        <div class="prob"><i class="ti ti-alert-circle" style="color:var(--text-danger)"></i> Clicked OCR but nothing happened</div>
+        <div class="fix">The first time you use OCR, SlideCraft needs to download the text detection model which is about 100 MB. This happens in the background and can take a minute or two. Make sure your internet connection is active, wait a moment, and try again. A loading spinner should appear while the download is in progress.</div>
+      </div>
+      <div class="trouble-row">
+        <div class="prob"><i class="ti ti-alert-circle" style="color:var(--text-danger)"></i> Getting a UnicodeEncodeError on Windows</div>
+        <div class="fix">This is a Windows terminal encoding issue. Fix it by setting the encoding before starting the server. In Command Prompt: <code>set PYTHONIOENCODING=utf-8 &amp;&amp; python app.py</code>. In PowerShell: <code>$env:PYTHONIOENCODING="utf-8"; python app.py</code>.</div>
+      </div>
+      <div class="trouble-row">
+        <div class="prob"><i class="ti ti-alert-circle" style="color:var(--text-danger)"></i> Remove BG says "rembg not installed"</div>
+        <div class="fix">Make sure your virtual environment is activated, then run <code>pip install rembg</code> and restart the server. If rembg is already in requirements.txt and the install seemed to work, check that you are running the app from within the same virtual environment where you installed it.</div>
+      </div>
+      <div class="trouble-row">
+        <div class="prob"><i class="ti ti-alert-circle" style="color:var(--text-danger)"></i> Video logo removal is taking a very long time</div>
+        <div class="fix">This is normal. SlideCraft processes every single frame individually using the CPU, which is slow for long or high-resolution videos. A 5-minute 1080p video typically takes between 5 and 8 minutes to process. The progress bar will show you how far along it is.</div>
+      </div>
+      <div class="trouble-row">
+        <div class="prob"><i class="ti ti-alert-circle" style="color:var(--text-danger)"></i> QR code shows a grey box instead of a real code</div>
+        <div class="fix">The QR code feature requires an extra package that is not installed by default. Run <code>pip install qrcode[pil]</code> in your activated virtual environment, then restart the server.</div>
+      </div>
+      <div class="trouble-row">
+        <div class="prob"><i class="ti ti-alert-circle" style="color:var(--text-danger)"></i> Getting a 413 error when uploading</div>
+        <div class="fix">The file or batch of files you are trying to upload exceeds the current size limit. Start the server with a higher limit: <code>MAX_UPLOAD_MB=2048 python app.py</code>. The default is already 1 GB so this mostly comes up with very large video-heavy batches.</div>
+      </div>
+      <div class="trouble-row">
+        <div class="prob"><i class="ti ti-alert-circle" style="color:var(--text-danger)"></i> The replacement text font does not match the original</div>
+        <div class="fix">SlideCraft tries to match the font automatically using OCR, but it can only use fonts that are installed on your operating system. Open the <strong>Font Family</strong> dropdown in the Properties panel and try different options until you find the closest match to the original.</div>
+      </div>
+      <div class="trouble-row">
+        <div class="prob"><i class="ti ti-alert-circle" style="color:var(--text-danger)"></i> AI buttons are not responding or returning errors</div>
+        <div class="fix">The AI tools need Ollama to be running in the background. Check that it is installed, that you have pulled at least one model with <code>ollama pull llama3</code>, and that the Ollama service is active. You can start it manually by running <code>ollama serve</code> in a terminal.</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+function showTab(btn, id) {
+  const group = btn.parentElement;
+  group.querySelectorAll('.ptab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const container = group.parentElement;
+  container.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById('pane-' + id);
+  if (target) target.classList.add('active');
+}
+</script>
+</body>
+</html>

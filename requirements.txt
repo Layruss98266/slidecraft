@@ -5,3 +5,15 @@ opencv-python-headless>=4.8
 easyocr>=1.7
 moviepy>=2.0
 numpy>=1.24
+
+rembg                                # Background removal (~170 MB model)
+pdf2image                            # Higher-fidelity PPTX→PDF→JPG
+PyMuPDF                              # Fallback PDF→JPG
+
+# ── Optional extras (uncomment as needed) ─────────────────────────────────
+# authlib                              # Google OAuth login
+# google-api-python-client             # Google Slides export
+# google-auth                          # Google Slides export
+# google-auth-oauthlib                 # Google Slides export bootstrap
+# qrcode[pil]                          # QR overlay generation
+
