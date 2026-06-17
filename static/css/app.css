@@ -1084,3 +1084,79 @@
     background: rgba(255,255,255,0.04); color: var(--text3);
   }
 
+
+  /* ── Logo Insert Modal ──────────────────────────────────────────────── */
+  .logo-card {
+    width: min(820px, 95vw); padding: 0; overflow: hidden;
+  }
+  .logo-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 22px 14px; border-bottom: 1px solid var(--glass-border);
+  }
+  .logo-modal-body {
+    display: grid; grid-template-columns: 220px 1fr; gap: 22px;
+    padding: 20px 22px 22px; max-height: calc(90dvh - 70px); overflow-y: auto;
+  }
+  @media (max-width: 640px) { .logo-modal-body { grid-template-columns: 1fr; } }
+
+  .logo-pos-picker {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px;
+    background: rgba(0,0,0,0.25); padding: 6px;
+    border-radius: var(--radius-sm); border: 1px solid var(--glass-border);
+  }
+  .logo-pos-btn {
+    aspect-ratio: 1; background: var(--surface);
+    border: 1px solid var(--glass-border); color: var(--text2);
+    font-size: 18px; border-radius: var(--radius-xs); cursor: pointer;
+    transition: all var(--transition);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo-pos-btn:hover { border-color: var(--accent); color: var(--text); }
+  .logo-pos-btn.active {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+    box-shadow: 0 2px 10px var(--accent-glow);
+  }
+
+  .logo-slide-preview {
+    position: relative; aspect-ratio: 16/9; width: 100%;
+    background: #000; border-radius: var(--radius-xs);
+    border: 1px solid var(--glass-border); overflow: hidden; margin-top: 4px;
+  }
+  .logo-preview-dot {
+    position: absolute; width: 14px; height: 14px;
+    background: var(--accent); border-radius: 50%;
+    border: 2px solid #fff; box-shadow: 0 0 8px var(--accent-glow);
+    transform: translate(-50%, -50%);
+    transition: left 0.2s ease, top 0.2s ease;
+    pointer-events: none;
+  }
+
+  .logo-img-preview-wrap {
+    margin-top: 8px; padding: 8px;
+    background: var(--surface); border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xs);
+    display: flex; align-items: center; justify-content: center;
+    max-height: 90px;
+  }
+  .logo-img-preview-wrap img { max-width: 100%; max-height: 74px; object-fit: contain; }
+
+  /* ── Responsive Layout ──────────────────────────────────────────────── */
+  @media (min-width: 3840px) {
+    :root { --thumb-w: 260px; }
+    .canvas-toolbar { padding: 8px 16px; gap: 6px; }
+  }
+  @media (min-width: 2560px) and (max-width: 3839px) {
+    :root { --thumb-w: 220px; }
+  }
+  @media (max-width: 1366px) {
+    :root { --thumb-w: 160px; }
+    .canvas-toolbar { padding: 5px 8px; gap: 3px; }
+    .toolbar-label { display: none; }
+    .tool-sep { margin: 0 3px; }
+  }
+  @media (max-width: 1024px) {
+    :root { --thumb-w: 130px; }
+    .thumb-item .num { font-size: 9px; padding: 1px 5px; }
+  }
+  .modal-card { max-height: 92dvh; }
+  .wm-card { max-height: 92dvh; }

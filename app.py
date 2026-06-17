@@ -2413,6 +2413,10 @@ def add_image_watermark():
         wm_scale = max(0.02, min(0.6, float(request.form.get("scale", 0.15))))
     except (TypeError, ValueError):
         wm_scale = 0.15
+    try:
+        wm_padding = max(0, min(200, int(request.form.get("padding", 20))))
+    except (TypeError, ValueError):
+        wm_padding = 20
 
     scope = request.form.get("scope", "all")
     all_files = _get_slide_files()
@@ -2450,16 +2454,21 @@ def add_image_watermark():
         wm_resized = Image.merge("RGBA", (r, g, b, a))
 
         # Position
-        if wm_position == "center":
-            pos = ((w - wm_w) // 2, (h - wm_h) // 2)
-        elif wm_position == "top-left":
-            pos = (20, 20)
-        elif wm_position == "top-right":
-            pos = (w - wm_w - 20, 20)
-        elif wm_position == "bottom-left":
-            pos = (20, h - wm_h - 20)
-        elif wm_position == "tiled":
-            # Tile across entire image
+        cx = (w - wm_w) // 2
+        cy = (h - wm_h) // 2
+        pad = wm_padding
+        _positions = {
+            "top-left":      (pad, pad),
+            "top-center":    (cx, pad),
+            "top-right":     (w - wm_w - pad, pad),
+            "middle-left":   (pad, cy),
+            "center":        (cx, cy),
+            "middle-right":  (w - wm_w - pad, cy),
+            "bottom-left":   (pad, h - wm_h - pad),
+            "bottom-center": (cx, h - wm_h - pad),
+            "bottom-right":  (w - wm_w - pad, h - wm_h - pad),
+        }
+        if wm_position == "tiled":
             overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
             for tx in range(0, w, wm_w + 60):
                 for ty in range(0, h, wm_h + 40):
@@ -2467,8 +2476,7 @@ def add_image_watermark():
             img = Image.alpha_composite(img, overlay)
             img.convert("RGB").save(str(sf), quality=95)
             continue
-        else:  # bottom-right
-            pos = (w - wm_w - 20, h - wm_h - 20)
+        pos = _positions.get(wm_position, _positions["bottom-right"])
 
         img.paste(wm_resized, pos, wm_resized)
         img.convert("RGB").save(str(sf), quality=95)

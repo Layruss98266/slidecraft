@@ -78,6 +78,7 @@ window.addEventListener('load', () => {
   setZoom(70);
   initThumbDrag();
   refreshDeckInfo();
+  adaptToScreen();
 });
 
 window.addEventListener('beforeunload', e => {
@@ -2258,6 +2259,133 @@ async function doUpload(file) {
   } catch (e) {
     hideLoading();
     showToast('Upload failed: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// LOGO INSERT MODAL
+// ══════════════════════════════════════════════════════════════════════════
+let logoPosition = 'bottom-left';
+let logoScope    = 'all';
+
+function openLogoModal() {
+  const modal = document.getElementById('logo-modal');
+  if (!modal) return;
+  // Load current slide thumbnail into preview
+  const slideImg = document.getElementById('slide-img');
+  const prev = document.getElementById('logo-preview-slide-img');
+  if (slideImg && slideImg.src) prev.src = slideImg.src;
+  updateLogoDot();
+  modal.classList.add('active');
+}
+
+function closeLogoModal() {
+  document.getElementById('logo-modal').classList.remove('active');
+}
+
+function setLogoPos(pos) {
+  logoPosition = pos;
+  document.querySelectorAll('.logo-pos-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.pos === pos);
+  });
+  updateLogoDot();
+}
+
+function setLogoScope(scope) {
+  logoScope = scope;
+  document.getElementById('logo-scope-current').classList.toggle('active', scope === 'current');
+  document.getElementById('logo-scope-all').classList.toggle('active', scope === 'all');
+}
+
+function updateLogoDot() {
+  const dot = document.getElementById('logo-preview-dot');
+  const preview = document.getElementById('logo-slide-preview');
+  if (!dot || !preview) return;
+  const scale   = parseFloat(document.getElementById('logo-scale').value);
+  const padding = parseInt(document.getElementById('logo-padding').value);
+  // Dot represents logo center as % of preview box
+  const pad_pct_x = (padding / 1920) * 100;
+  const pad_pct_y = (padding / 1080) * 100;
+  const logo_pct  = scale * 100;
+  const half_w    = logo_pct / 2;
+  const half_h    = (logo_pct / (16/9)) / 2;
+  const positions = {
+    'top-left':      [pad_pct_x + half_w,       pad_pct_y + half_h],
+    'top-center':    [50,                         pad_pct_y + half_h],
+    'top-right':     [100 - pad_pct_x - half_w,  pad_pct_y + half_h],
+    'middle-left':   [pad_pct_x + half_w,         50],
+    'center':        [50,                          50],
+    'middle-right':  [100 - pad_pct_x - half_w,   50],
+    'bottom-left':   [pad_pct_x + half_w,          100 - pad_pct_y - half_h],
+    'bottom-center': [50,                           100 - pad_pct_y - half_h],
+    'bottom-right':  [100 - pad_pct_x - half_w,    100 - pad_pct_y - half_h],
+  };
+  const [lx, ly] = positions[logoPosition] || [50, 50];
+  dot.style.left = lx + '%';
+  dot.style.top  = ly + '%';
+}
+
+function onLogoFileChange(input) {
+  if (!input.files[0]) return;
+  const name = input.files[0].name;
+  document.getElementById('logo-file-name').textContent = name.length > 28 ? name.slice(0, 25) + '…' : name;
+  const wrap = document.getElementById('logo-img-preview-wrap');
+  const img  = document.getElementById('logo-img-preview');
+  const url  = URL.createObjectURL(input.files[0]);
+  img.src = url;
+  wrap.style.display = 'flex';
+}
+
+async function applyLogo() {
+  const fileInput = document.getElementById('logo-file-input');
+  if (!fileInput.files[0]) { showToast('Choose a logo image first', 'error'); return; }
+  const scale   = document.getElementById('logo-scale').value;
+  const opacity = document.getElementById('logo-opacity').value;
+  const padding = document.getElementById('logo-padding').value;
+  const skip    = document.getElementById('logo-skip').value.trim();
+  const form = new FormData();
+  form.append('image',    fileInput.files[0]);
+  form.append('opacity',  opacity);
+  form.append('position', logoPosition);
+  form.append('scale',    scale);
+  form.append('padding',  padding);
+  form.append('scope',    logoScope);
+  form.append('slide_num', currentSlide);
+  if (skip) form.append('skip_slides', skip);
+  showLoading(logoScope === 'current' ? 'Inserting logo...' : 'Inserting logo on all slides...');
+  try {
+    const resp = await fetch('/api/watermark-image', { method: 'POST', body: form });
+    hideLoading();
+    const data = await resp.json();
+    if (data.ok) {
+      closeLogoModal();
+      reloadAllSlides();
+      showToast('Logo inserted on ' + data.count + ' slide' + (data.count === 1 ? '' : 's') + '.', 'success', 5000);
+    } else {
+      showToast(data.error || 'Insert failed', 'error');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Insert error: ' + e.message, 'error');
+  }
+}
+
+// Adapt layout to actual monitor resolution on load
+function adaptToScreen() {
+  const sw = window.screen.width;
+  const root = document.documentElement.style;
+  if (sw >= 3840) {
+    root.setProperty('--thumb-w', '260px');
+  } else if (sw >= 2560) {
+    root.setProperty('--thumb-w', '220px');
+  } else if (sw >= 1920) {
+    root.setProperty('--thumb-w', '185px');
+  } else if (sw >= 1440) {
+    root.setProperty('--thumb-w', '170px');
+  } else if (sw >= 1280) {
+    root.setProperty('--thumb-w', '160px');
+  } else {
+    root.setProperty('--thumb-w', '140px');
   }
 }
 

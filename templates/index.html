@@ -464,6 +464,10 @@
         <button class="tool-btn btn-sm" onclick="openWatermarkModal()" title="Watermark">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         </button>
+        <button class="tool-btn btn-sm" onclick="openLogoModal()" title="Insert Logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M14 10h4M14 14h4"/></svg>
+          <span class="act-label">Logo</span>
+        </button>
       </div>
       <input type="file" id="image-upload-input" accept="image/*" style="display:none" onchange="handleImageUpload(this)">
 
@@ -898,6 +902,96 @@
       <input type="text" id="qr-url" placeholder="https://example.com" value="https://example.com">
     </div>
     <button class="btn btn-primary btn-sm" style="width:100%" onclick="generateQR()">Generate & Insert</button>
+  </div>
+</div>
+
+<!-- Logo Insert Modal -->
+<div class="modal-backdrop" id="logo-modal" onclick="if(event.target===this)closeLogoModal()">
+  <div class="modal-card logo-card">
+    <div class="logo-modal-header">
+      <h3 style="margin:0;display:flex;align-items:center;gap:10px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--accent2)"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M14 10h4M14 14h4"/></svg>
+        Insert Logo
+      </h3>
+      <button class="wm-close" onclick="closeLogoModal()">×</button>
+    </div>
+
+    <div class="logo-modal-body">
+      <!-- Left: position picker + preview -->
+      <div class="logo-left-col">
+        <div class="wm-section-label">Position on Slide</div>
+        <div class="logo-pos-picker" id="logo-pos-picker">
+          <button class="logo-pos-btn" data-pos="top-left"      onclick="setLogoPos('top-left')"      title="Top Left">↖</button>
+          <button class="logo-pos-btn" data-pos="top-center"    onclick="setLogoPos('top-center')"    title="Top Center">↑</button>
+          <button class="logo-pos-btn" data-pos="top-right"     onclick="setLogoPos('top-right')"     title="Top Right">↗</button>
+          <button class="logo-pos-btn" data-pos="middle-left"   onclick="setLogoPos('middle-left')"   title="Middle Left">←</button>
+          <button class="logo-pos-btn" data-pos="center"        onclick="setLogoPos('center')"        title="Center">●</button>
+          <button class="logo-pos-btn" data-pos="middle-right"  onclick="setLogoPos('middle-right')"  title="Middle Right">→</button>
+          <button class="logo-pos-btn active" data-pos="bottom-left"   onclick="setLogoPos('bottom-left')"   title="Bottom Left">↙</button>
+          <button class="logo-pos-btn" data-pos="bottom-center" onclick="setLogoPos('bottom-center')" title="Bottom Center">↓</button>
+          <button class="logo-pos-btn" data-pos="bottom-right"  onclick="setLogoPos('bottom-right')"  title="Bottom Right">↘</button>
+        </div>
+        <div style="margin-top:8px">
+          <div class="wm-section-label">Slide Preview</div>
+          <div class="logo-slide-preview" id="logo-slide-preview">
+            <img id="logo-preview-slide-img" alt="" style="width:100%;height:100%;object-fit:contain;display:block"/>
+            <div class="logo-preview-dot" id="logo-preview-dot"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: controls -->
+      <div class="logo-right-col">
+        <div class="field">
+          <label>Upload Logo</label>
+          <label class="btn btn-glass btn-sm" style="cursor:pointer;width:100%;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            <span id="logo-file-name">Choose image (PNG/SVG recommended)</span>
+            <input type="file" accept="image/*" id="logo-file-input" onchange="onLogoFileChange(this)" style="display:none">
+          </label>
+          <div class="logo-img-preview-wrap" id="logo-img-preview-wrap" style="display:none">
+            <img id="logo-img-preview" alt=""/>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Size <span class="range-val" id="logo-scale-val">20%</span></label>
+          <input type="range" class="zoom-slider" min="0.03" max="0.5" step="0.01" value="0.20"
+                 id="logo-scale" oninput="document.getElementById('logo-scale-val').textContent=Math.round(this.value*100)+'%'; updateLogoDot()" style="width:100%">
+        </div>
+
+        <div class="field">
+          <label>Opacity <span class="range-val" id="logo-opacity-val">100%</span></label>
+          <input type="range" class="zoom-slider" min="0.05" max="1" step="0.05" value="1"
+                 id="logo-opacity" oninput="document.getElementById('logo-opacity-val').textContent=Math.round(this.value*100)+'%'" style="width:100%">
+        </div>
+
+        <div class="field">
+          <label>Edge Padding <span class="range-val" id="logo-padding-val">20px</span></label>
+          <input type="range" class="zoom-slider" min="0" max="80" step="2" value="20"
+                 id="logo-padding" oninput="document.getElementById('logo-padding-val').textContent=this.value+'px'; updateLogoDot()" style="width:100%">
+        </div>
+
+        <div class="field">
+          <label>Apply To</label>
+          <div class="wm-segmented">
+            <button class="wm-seg" id="logo-scope-current" onclick="setLogoScope('current')">Current slide</button>
+            <button class="wm-seg active" id="logo-scope-all" onclick="setLogoScope('all')">All slides</button>
+          </div>
+        </div>
+
+        <div class="field" id="logo-skip-field">
+          <label>Skip slides <span style="color:var(--text3);font-weight:400;font-size:11px">(optional)</span></label>
+          <input type="text" id="logo-skip" placeholder="e.g. 1,3,5-8"
+                 style="width:100%;padding:6px 8px;background:var(--bg2);color:var(--text1);border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </div>
+
+        <div class="wm-actions">
+          <button class="btn btn-glass btn-sm" onclick="closeLogoModal()">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="applyLogo()" style="flex:1">Insert Logo</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
