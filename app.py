@@ -1224,6 +1224,41 @@ def upload_image():
     return jsonify({"src": f"data:image/png;base64,{b64}", "w": img.width, "h": img.height})
 
 
+@app.route("/api/logo/add-overlay", methods=["POST"])
+def add_logo_overlay():
+    """Add a logo as a draggable image overlay to one or all slides."""
+    payload = request.json or {}
+    src = payload.get("src")
+    if not src:
+        return jsonify({"error": "No src provided"}), 400
+    try:
+        x       = float(payload.get("x", 0))
+        y       = float(payload.get("y", 0))
+        w       = float(payload.get("w", 0.2))
+        h       = float(payload.get("h", 0.2))
+        opacity = float(payload.get("opacity", 1.0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid overlay params"}), 400
+
+    scope     = payload.get("scope", "all")
+    slide_num = int(payload.get("slide_num", 1))
+
+    data   = load_data()
+    slides = _get_slide_files()
+
+    targets = [str(slide_num)] if scope == "current" \
+              else [str(i + 1) for i in range(len(slides))]
+
+    ov = {"type": "image", "x": x, "y": y, "w": w, "h": h,
+          "src": src, "opacity": opacity}
+    for t in targets:
+        data.setdefault(t, {"overlays": [], "notes": ""}) \
+            .setdefault("overlays", []).append(ov)
+
+    save_data(data)
+    return jsonify({"ok": True, "count": len(targets)})
+
+
 @app.route("/api/remove-background", methods=["POST"])
 def remove_background():
     """Strip background from a base64 image overlay using rembg."""

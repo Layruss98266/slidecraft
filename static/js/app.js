@@ -2339,34 +2339,72 @@ function onLogoFileChange(input) {
 async function applyLogo() {
   const fileInput = document.getElementById('logo-file-input');
   if (!fileInput.files[0]) { showToast('Choose a logo image first', 'error'); return; }
-  const scale   = document.getElementById('logo-scale').value;
-  const opacity = document.getElementById('logo-opacity').value;
-  const padding = document.getElementById('logo-padding').value;
-  const skip    = document.getElementById('logo-skip').value.trim();
+
+  const scale   = parseFloat(document.getElementById('logo-scale').value);
+  const opacity = parseFloat(document.getElementById('logo-opacity').value);
+  const padding = parseInt(document.getElementById('logo-padding').value);
+
+  showLoading('Uploading logo...');
   const form = new FormData();
-  form.append('image',    fileInput.files[0]);
-  form.append('opacity',  opacity);
-  form.append('position', logoPosition);
-  form.append('scale',    scale);
-  form.append('padding',  padding);
-  form.append('scope',    logoScope);
-  form.append('slide_num', currentSlide);
-  if (skip) form.append('skip_slides', skip);
-  showLoading(logoScope === 'current' ? 'Inserting logo...' : 'Inserting logo on all slides...');
+  form.append('file', fileInput.files[0]);
   try {
-    const resp = await fetch('/api/watermark-image', { method: 'POST', body: form });
-    hideLoading();
-    const data = await resp.json();
-    if (data.ok) {
+    const upResp = await fetch('/api/upload-image', { method: 'POST', body: form });
+    const upData = await upResp.json();
+    if (!upData.src) { hideLoading(); showToast(upData.error || 'Upload failed', 'error'); return; }
+
+    // Compute overlay bounds (0–1 relative to slide dimensions)
+    const aspect = upData.w / upData.h;
+    const ovW  = scale;
+    const ovH  = ovW / aspect;
+    const PX   = padding / 1920;
+    const PY   = padding / 1080;
+    const cx   = 0.5 - ovW / 2;
+    const cy   = 0.5 - ovH / 2;
+    const rX   = 1 - ovW - PX;
+    const bY   = 1 - ovH - PY;
+    const posMap = {
+      'top-left':      [PX,  PY],  'top-center':    [cx,  PY],  'top-right':     [rX,  PY],
+      'middle-left':   [PX,  cy],  'center':        [cx,  cy],  'middle-right':  [rX,  cy],
+      'bottom-left':   [PX,  bY],  'bottom-center': [cx,  bY],  'bottom-right':  [rX,  bY],
+    };
+    const [ox, oy] = posMap[logoPosition] || posMap['bottom-right'];
+    const ovObj = { type: 'image', x: ox, y: oy, w: ovW, h: ovH, src: upData.src, opacity };
+
+    if (logoScope === 'current') {
+      // Add as draggable overlay on current slide only
+      pushUndo();
+      overlays.push(ovObj);
+      preloadSingleImage(overlays.length - 1);
+      selectOverlay(overlays.length - 1);
+      renderOverlayList();
+      renderOverlays();
+      markDirty();
+      hideLoading();
       closeLogoModal();
-      reloadAllSlides();
-      showToast('Logo inserted on ' + data.count + ' slide' + (data.count === 1 ? '' : 's') + '.', 'success', 5000);
+      showToast('Logo added — drag to reposition, resize handles on corners', 'success', 6000);
     } else {
-      showToast(data.error || 'Insert failed', 'error');
+      // Save current slide first, then add overlay to all slides via backend
+      await saveCurrentSlide(true);
+      showLoading('Adding logo to all slides...');
+      const addResp = await fetch('/api/logo/add-overlay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ src: upData.src, x: ox, y: oy, w: ovW, h: ovH, opacity, scope: 'all', slide_num: currentSlide })
+      });
+      const addData = await addResp.json();
+      hideLoading();
+      if (addData.ok) {
+        closeLogoModal();
+        // Reload current slide to show newly added overlay
+        await gotoSlide(currentSlide);
+        showToast(`Logo added to ${addData.count} slides — select it on any slide to drag/resize`, 'success', 6000);
+      } else {
+        showToast(addData.error || 'Failed to add logo', 'error');
+      }
     }
   } catch (e) {
     hideLoading();
-    showToast('Insert error: ' + e.message, 'error');
+    showToast('Logo insert error: ' + e.message, 'error');
   }
 }
 
