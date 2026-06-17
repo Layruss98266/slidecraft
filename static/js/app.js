@@ -2375,6 +2375,7 @@ async function applyLogo() {
       pushUndo();
       overlays.push(ovObj);
       preloadSingleImage(overlays.length - 1);
+      setTool('select');              // must be in select mode to drag
       selectOverlay(overlays.length - 1);
       renderOverlayList();
       renderOverlays();
@@ -2395,9 +2396,11 @@ async function applyLogo() {
       hideLoading();
       if (addData.ok) {
         closeLogoModal();
-        // Reload current slide to show newly added overlay
         await gotoSlide(currentSlide);
-        showToast(`Logo added to ${addData.count} slides — select it on any slide to drag/resize`, 'success', 6000);
+        setTool('select');
+        // Auto-select the last overlay (the logo we just added)
+        if (overlays.length > 0) selectOverlay(overlays.length - 1);
+        showToast(`Logo added to ${addData.count} slides — drag to reposition`, 'success', 6000);
       } else {
         showToast(addData.error || 'Failed to add logo', 'error');
       }
