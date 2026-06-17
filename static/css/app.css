@@ -373,6 +373,44 @@
   }
   .thumb-item.has-edits .has-overlay { display: block; }
 
+  /* Slide strip header */
+  .thumb-strip-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 4px 6px; border-bottom: 1px solid var(--glass-border);
+    flex-shrink: 0; margin-bottom: 4px;
+  }
+  .thumb-strip-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--text3);
+  }
+  .thumb-strip-count {
+    font-size: 10px; font-weight: 700; color: var(--accent2);
+    background: rgba(99,102,241,0.12); padding: 1px 7px;
+    border-radius: 10px; border: 1px solid rgba(99,102,241,0.2);
+  }
+
+  /* Hover action buttons on each thumbnail */
+  .thumb-actions {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; justify-content: center; align-items: center; gap: 6px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%);
+    padding: 8px 6px 16px;
+    opacity: 0; transition: opacity 0.15s ease;
+    pointer-events: none;
+  }
+  .thumb-item:hover .thumb-actions { opacity: 1; pointer-events: all; }
+  .thumb-item:hover { transform: scale(1.02); }
+
+  .thumb-action-btn {
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
+    color: #fff; border-radius: 5px; cursor: pointer; padding: 4px 6px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.12s; backdrop-filter: blur(6px);
+  }
+  .thumb-action-btn svg { width: 12px; height: 12px; }
+  .thumb-action-btn:hover { background: rgba(255,255,255,0.25); }
+  .thumb-action-btn.thumb-action-del:hover { background: rgba(239,68,68,0.7); border-color: transparent; }
+
   /* ── Canvas Area ───────────────────────────────────────────────────── */
   .canvas-area {
     flex: 1; display: flex; flex-direction: column; overflow: hidden;
@@ -1151,12 +1189,36 @@
   @media (min-width: 2560px) and (max-width: 3839px) {
     :root { --thumb-w: 220px; }
   }
-  @media (max-width: 1366px) {
-    :root { --thumb-w: 160px; }
-    .canvas-toolbar { padding: 5px 8px; gap: 3px; }
+  /* 1600px — hide labels to save space */
+  @media (max-width: 1600px) {
     .toolbar-label { display: none; }
+    .tool-btn { padding: 4px 6px; gap: 4px; }
+    .zoom-slider { width: 60px; }
+  }
+  /* 1440px — tighter gaps */
+  @media (max-width: 1440px) {
+    .canvas-toolbar { padding: 5px 8px; gap: 3px; }
+    .tool-group { padding: 2px; gap: 2px; }
     .tool-sep { margin: 0 3px; }
   }
+  /* 1366px — hide zoom slider, shrink buttons */
+  @media (max-width: 1366px) {
+    :root { --thumb-w: 160px; }
+    .canvas-toolbar { padding: 4px 6px; gap: 2px; }
+    .tool-btn { padding: 3px 5px; font-size: 11px; }
+    .tool-btn svg { width: 13px; height: 13px; }
+    .tool-sep { margin: 0 2px; }
+    .tool-group { gap: 1px; padding: 2px; }
+    .zoom-slider { display: none; }
+    .zoom-val { font-size: 10px; min-width: 28px; }
+  }
+  /* 1280px — ultra-compact */
+  @media (max-width: 1280px) {
+    .tool-btn { padding: 3px 4px; }
+    .tool-btn svg { width: 12px; height: 12px; }
+    .zoom-control { gap: 2px; }
+  }
+  /* 1024px — thumbnail strip & badge shrink */
   @media (max-width: 1024px) {
     :root { --thumb-w: 130px; }
     .thumb-item .num { font-size: 9px; padding: 1px 5px; }

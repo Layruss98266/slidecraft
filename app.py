@@ -6,7 +6,7 @@ then exports a new editable PPTX.
 
 import os, sys, json, base64, subprocess, shutil, uuid, datetime, re
 from pathlib import Path
-from flask import Flask, render_template, jsonify, request, send_file
+from flask import Flask, render_template, jsonify, request, send_file, make_response
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -363,7 +363,10 @@ def _convert_pptx_to_images_pillow(pptx_path, output_dir=None):
 def index():
     slide_files = _get_slide_files()
     slides = [{"index": i+1, "file": f"slides/{f.name}"} for i, f in enumerate(slide_files)]
-    return render_template("index.html", slides=slides, num_slides=len(slide_files))
+    resp = make_response(render_template("index.html", slides=slides, num_slides=len(slide_files)))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 @app.route("/api/slide/<int:num>")
 def get_slide(num):
@@ -3626,7 +3629,18 @@ except ImportError as _e:
     print(f"[gslides] not loaded: {_e}", file=sys.stderr)
 
 
+def _clear_session():
+    """Wipe slide images and overlay data so every startup is a clean slate."""
+    for f in SLIDES_DIR.glob("slide-*.jpg"):
+        try: f.unlink()
+        except OSError: pass
+    for path in (DATA_FILE, DECK_NAME_FILE, BASE_DIR / "autosave.json"):
+        try: path.unlink()
+        except OSError: pass
+
+
 if __name__ == "__main__":
+    _clear_session()
     # Bind to localhost by default. Set HOST=0.0.0.0 to expose on LAN (no auth!).
     host = os.environ.get('HOST', '127.0.0.1')
     if host == '0.0.0.0':

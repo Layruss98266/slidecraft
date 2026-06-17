@@ -6,8 +6,8 @@
 <title>SlideCraft — Slide Editor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/features.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=5">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/features.css') }}?v=5">
 </head>
 <body>
 
@@ -388,11 +388,25 @@
 
   <!-- Thumbnail strip -->
   <div class="thumb-strip" id="thumb-strip">
+    {% if slides %}
+    <div class="thumb-strip-header">
+      <span class="thumb-strip-title">Slides</span>
+      <span class="thumb-strip-count">{{ slides|length }}</span>
+    </div>
+    {% endif %}
     {% for s in slides %}
     <div class="thumb-item" id="thumb-{{ s.index }}" data-index="{{ s.index }}" onclick="gotoSlide({{ s.index }})" draggable="true">
       <img src="/static/{{ s.file }}" loading="lazy" alt="Slide {{ s.index }}">
       <div class="num">{{ s.index }}</div>
       <div class="has-overlay"></div>
+      <div class="thumb-actions">
+        <button class="thumb-action-btn" title="Duplicate slide" onclick="event.stopPropagation(); gotoSlide({{ s.index }}).then(()=>duplicateSlide())">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
+        <button class="thumb-action-btn thumb-action-del" title="Delete slide" onclick="event.stopPropagation(); gotoSlide({{ s.index }}).then(()=>deleteSlide())">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        </button>
+      </div>
     </div>
     {% endfor %}
   </div>
@@ -1330,7 +1344,7 @@
 </div>
 
 <script>window.NUM_SLIDES = {{ num_slides }};</script>
-<script src="{{ url_for('static', filename='js/app.js') }}"></script>
-<script src="{{ url_for('static', filename='js/features.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='js/features.js') }}?v=5"></script>
 </body>
 </html>
