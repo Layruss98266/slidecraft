@@ -6,7 +6,7 @@ then exports a new editable PPTX.
 
 import os, sys, json, base64, subprocess, shutil, uuid, datetime, re
 from pathlib import Path
-from flask import Flask, render_template, jsonify, request, send_file
+from flask import Flask, render_template, jsonify, request, send_file, make_response
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -363,7 +363,10 @@ def _convert_pptx_to_images_pillow(pptx_path, output_dir=None):
 def index():
     slide_files = _get_slide_files()
     slides = [{"index": i+1, "file": f"slides/{f.name}"} for i, f in enumerate(slide_files)]
-    return render_template("index.html", slides=slides, num_slides=len(slide_files))
+    resp = make_response(render_template("index.html", slides=slides, num_slides=len(slide_files)))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 @app.route("/api/slide/<int:num>")
 def get_slide(num):
@@ -1222,6 +1225,41 @@ def upload_image():
     buf.seek(0)
     b64 = base64.b64encode(buf.read()).decode()
     return jsonify({"src": f"data:image/png;base64,{b64}", "w": img.width, "h": img.height})
+
+
+@app.route("/api/logo/add-overlay", methods=["POST"])
+def add_logo_overlay():
+    """Add a logo as a draggable image overlay to one or all slides."""
+    payload = request.json or {}
+    src = payload.get("src")
+    if not src:
+        return jsonify({"error": "No src provided"}), 400
+    try:
+        x       = float(payload.get("x", 0))
+        y       = float(payload.get("y", 0))
+        w       = float(payload.get("w", 0.2))
+        h       = float(payload.get("h", 0.2))
+        opacity = float(payload.get("opacity", 1.0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid overlay params"}), 400
+
+    scope     = payload.get("scope", "all")
+    slide_num = int(payload.get("slide_num", 1))
+
+    data   = load_data()
+    slides = _get_slide_files()
+
+    targets = [str(slide_num)] if scope == "current" \
+              else [str(i + 1) for i in range(len(slides))]
+
+    ov = {"type": "image", "x": x, "y": y, "w": w, "h": h,
+          "src": src, "opacity": opacity}
+    for t in targets:
+        data.setdefault(t, {"overlays": [], "notes": ""}) \
+            .setdefault("overlays", []).append(ov)
+
+    save_data(data)
+    return jsonify({"ok": True, "count": len(targets)})
 
 
 @app.route("/api/remove-background", methods=["POST"])
@@ -2413,6 +2451,10 @@ def add_image_watermark():
         wm_scale = max(0.02, min(0.6, float(request.form.get("scale", 0.15))))
     except (TypeError, ValueError):
         wm_scale = 0.15
+    try:
+        wm_padding = max(0, min(200, int(request.form.get("padding", 20))))
+    except (TypeError, ValueError):
+        wm_padding = 20
 
     scope = request.form.get("scope", "all")
     all_files = _get_slide_files()
@@ -2450,16 +2492,21 @@ def add_image_watermark():
         wm_resized = Image.merge("RGBA", (r, g, b, a))
 
         # Position
-        if wm_position == "center":
-            pos = ((w - wm_w) // 2, (h - wm_h) // 2)
-        elif wm_position == "top-left":
-            pos = (20, 20)
-        elif wm_position == "top-right":
-            pos = (w - wm_w - 20, 20)
-        elif wm_position == "bottom-left":
-            pos = (20, h - wm_h - 20)
-        elif wm_position == "tiled":
-            # Tile across entire image
+        cx = (w - wm_w) // 2
+        cy = (h - wm_h) // 2
+        pad = wm_padding
+        _positions = {
+            "top-left":      (pad, pad),
+            "top-center":    (cx, pad),
+            "top-right":     (w - wm_w - pad, pad),
+            "middle-left":   (pad, cy),
+            "center":        (cx, cy),
+            "middle-right":  (w - wm_w - pad, cy),
+            "bottom-left":   (pad, h - wm_h - pad),
+            "bottom-center": (cx, h - wm_h - pad),
+            "bottom-right":  (w - wm_w - pad, h - wm_h - pad),
+        }
+        if wm_position == "tiled":
             overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
             for tx in range(0, w, wm_w + 60):
                 for ty in range(0, h, wm_h + 40):
@@ -2467,8 +2514,7 @@ def add_image_watermark():
             img = Image.alpha_composite(img, overlay)
             img.convert("RGB").save(str(sf), quality=95)
             continue
-        else:  # bottom-right
-            pos = (w - wm_w - 20, h - wm_h - 20)
+        pos = _positions.get(wm_position, _positions["bottom-right"])
 
         img.paste(wm_resized, pos, wm_resized)
         img.convert("RGB").save(str(sf), quality=95)
@@ -3583,7 +3629,18 @@ except ImportError as _e:
     print(f"[gslides] not loaded: {_e}", file=sys.stderr)
 
 
+def _clear_session():
+    """Wipe slide images and overlay data so every startup is a clean slate."""
+    for f in SLIDES_DIR.glob("slide-*.jpg"):
+        try: f.unlink()
+        except OSError: pass
+    for path in (DATA_FILE, DECK_NAME_FILE, BASE_DIR / "autosave.json"):
+        try: path.unlink()
+        except OSError: pass
+
+
 if __name__ == "__main__":
+    _clear_session()
     # Bind to localhost by default. Set HOST=0.0.0.0 to expose on LAN (no auth!).
     host = os.environ.get('HOST', '127.0.0.1')
     if host == '0.0.0.0':

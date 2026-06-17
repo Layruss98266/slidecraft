@@ -78,6 +78,7 @@ window.addEventListener('load', () => {
   setZoom(70);
   initThumbDrag();
   refreshDeckInfo();
+  adaptToScreen();
 });
 
 window.addEventListener('beforeunload', e => {
@@ -2262,6 +2263,174 @@ async function doUpload(file) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// LOGO INSERT MODAL
+// ══════════════════════════════════════════════════════════════════════════
+let logoPosition = 'bottom-left';
+let logoScope    = 'all';
+
+function openLogoModal() {
+  const modal = document.getElementById('logo-modal');
+  if (!modal) return;
+  // Load current slide thumbnail into preview
+  const slideImg = document.getElementById('slide-img');
+  const prev = document.getElementById('logo-preview-slide-img');
+  if (slideImg && slideImg.src) prev.src = slideImg.src;
+  updateLogoDot();
+  modal.classList.add('active');
+}
+
+function closeLogoModal() {
+  document.getElementById('logo-modal').classList.remove('active');
+}
+
+function setLogoPos(pos) {
+  logoPosition = pos;
+  document.querySelectorAll('.logo-pos-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.pos === pos);
+  });
+  updateLogoDot();
+}
+
+function setLogoScope(scope) {
+  logoScope = scope;
+  document.getElementById('logo-scope-current').classList.toggle('active', scope === 'current');
+  document.getElementById('logo-scope-all').classList.toggle('active', scope === 'all');
+}
+
+function updateLogoDot() {
+  const dot = document.getElementById('logo-preview-dot');
+  const preview = document.getElementById('logo-slide-preview');
+  if (!dot || !preview) return;
+  const scale   = parseFloat(document.getElementById('logo-scale').value);
+  const padding = parseInt(document.getElementById('logo-padding').value);
+  // Dot represents logo center as % of preview box
+  const pad_pct_x = (padding / 1920) * 100;
+  const pad_pct_y = (padding / 1080) * 100;
+  const logo_pct  = scale * 100;
+  const half_w    = logo_pct / 2;
+  const half_h    = (logo_pct / (16/9)) / 2;
+  const positions = {
+    'top-left':      [pad_pct_x + half_w,       pad_pct_y + half_h],
+    'top-center':    [50,                         pad_pct_y + half_h],
+    'top-right':     [100 - pad_pct_x - half_w,  pad_pct_y + half_h],
+    'middle-left':   [pad_pct_x + half_w,         50],
+    'center':        [50,                          50],
+    'middle-right':  [100 - pad_pct_x - half_w,   50],
+    'bottom-left':   [pad_pct_x + half_w,          100 - pad_pct_y - half_h],
+    'bottom-center': [50,                           100 - pad_pct_y - half_h],
+    'bottom-right':  [100 - pad_pct_x - half_w,    100 - pad_pct_y - half_h],
+  };
+  const [lx, ly] = positions[logoPosition] || [50, 50];
+  dot.style.left = lx + '%';
+  dot.style.top  = ly + '%';
+}
+
+function onLogoFileChange(input) {
+  if (!input.files[0]) return;
+  const name = input.files[0].name;
+  document.getElementById('logo-file-name').textContent = name.length > 28 ? name.slice(0, 25) + '…' : name;
+  const wrap = document.getElementById('logo-img-preview-wrap');
+  const img  = document.getElementById('logo-img-preview');
+  const url  = URL.createObjectURL(input.files[0]);
+  img.src = url;
+  wrap.style.display = 'flex';
+}
+
+async function applyLogo() {
+  const fileInput = document.getElementById('logo-file-input');
+  if (!fileInput.files[0]) { showToast('Choose a logo image first', 'error'); return; }
+
+  const scale   = parseFloat(document.getElementById('logo-scale').value);
+  const opacity = parseFloat(document.getElementById('logo-opacity').value);
+  const padding = parseInt(document.getElementById('logo-padding').value);
+
+  showLoading('Uploading logo...');
+  const form = new FormData();
+  form.append('file', fileInput.files[0]);
+  try {
+    const upResp = await fetch('/api/upload-image', { method: 'POST', body: form });
+    const upData = await upResp.json();
+    if (!upData.src) { hideLoading(); showToast(upData.error || 'Upload failed', 'error'); return; }
+
+    // Compute overlay bounds (0–1 relative to slide dimensions)
+    const aspect = upData.w / upData.h;
+    const ovW  = scale;
+    const ovH  = ovW / aspect;
+    const PX   = padding / 1920;
+    const PY   = padding / 1080;
+    const cx   = 0.5 - ovW / 2;
+    const cy   = 0.5 - ovH / 2;
+    const rX   = 1 - ovW - PX;
+    const bY   = 1 - ovH - PY;
+    const posMap = {
+      'top-left':      [PX,  PY],  'top-center':    [cx,  PY],  'top-right':     [rX,  PY],
+      'middle-left':   [PX,  cy],  'center':        [cx,  cy],  'middle-right':  [rX,  cy],
+      'bottom-left':   [PX,  bY],  'bottom-center': [cx,  bY],  'bottom-right':  [rX,  bY],
+    };
+    const [ox, oy] = posMap[logoPosition] || posMap['bottom-right'];
+    const ovObj = { type: 'image', x: ox, y: oy, w: ovW, h: ovH, src: upData.src, opacity };
+
+    if (logoScope === 'current') {
+      // Add as draggable overlay on current slide only
+      pushUndo();
+      overlays.push(ovObj);
+      preloadSingleImage(overlays.length - 1);
+      setTool('select');              // must be in select mode to drag
+      selectOverlay(overlays.length - 1);
+      renderOverlayList();
+      renderOverlays();
+      markDirty();
+      hideLoading();
+      closeLogoModal();
+      showToast('Logo added — drag to reposition, resize handles on corners', 'success', 6000);
+    } else {
+      // Save current slide first, then add overlay to all slides via backend
+      await saveCurrentSlide(true);
+      showLoading('Adding logo to all slides...');
+      const addResp = await fetch('/api/logo/add-overlay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ src: upData.src, x: ox, y: oy, w: ovW, h: ovH, opacity, scope: 'all', slide_num: currentSlide })
+      });
+      const addData = await addResp.json();
+      hideLoading();
+      if (addData.ok) {
+        closeLogoModal();
+        await gotoSlide(currentSlide);
+        setTool('select');
+        // Auto-select the last overlay (the logo we just added)
+        if (overlays.length > 0) selectOverlay(overlays.length - 1);
+        showToast(`Logo added to ${addData.count} slides — drag to reposition`, 'success', 6000);
+      } else {
+        showToast(addData.error || 'Failed to add logo', 'error');
+      }
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('Logo insert error: ' + e.message, 'error');
+  }
+}
+
+// Adapt layout to actual monitor resolution on load
+function adaptToScreen() {
+  const sw = window.screen.width;
+  const root = document.documentElement.style;
+  if (sw >= 3840) {
+    root.setProperty('--thumb-w', '260px');
+  } else if (sw >= 2560) {
+    root.setProperty('--thumb-w', '220px');
+  } else if (sw >= 1920) {
+    root.setProperty('--thumb-w', '185px');
+  } else if (sw >= 1440) {
+    root.setProperty('--thumb-w', '170px');
+  } else if (sw >= 1280) {
+    root.setProperty('--thumb-w', '160px');
+  } else {
+    root.setProperty('--thumb-w', '140px');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // EXPORT DROPDOWN
 // ══════════════════════════════════════════════════════════════════════════
 function toggleExportMenu(e) {
@@ -2272,12 +2441,25 @@ function toggleExportMenu(e) {
 function closeExportMenu() {
   document.getElementById('export-menu').classList.remove('open');
 }
+function toggleMoreMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('more-menu');
+  const exportMenu = document.getElementById('export-menu');
+  exportMenu.classList.remove('open');
+  menu.classList.toggle('open');
+}
+function closeMoreMenu() {
+  const m = document.getElementById('more-menu');
+  if (m) m.classList.remove('open');
+}
 document.addEventListener('click', (e) => {
-  const menu = document.getElementById('export-menu');
-  if (menu && !e.target.closest('.export-dropdown')) menu.classList.remove('open');
+  const exportMenu = document.getElementById('export-menu');
+  if (exportMenu && !e.target.closest('.export-dropdown')) exportMenu.classList.remove('open');
+  const moreMenu = document.getElementById('more-menu');
+  if (moreMenu && !e.target.closest('.more-dropdown')) moreMenu.classList.remove('open');
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeExportMenu();
+  if (e.key === 'Escape') { closeExportMenu(); closeMoreMenu(); }
 });
 
 // ══════════════════════════════════════════════════════════════════════════
