@@ -81,14 +81,13 @@
   /* ── Header / Navbar ────────────────────────────────────────────────── */
   header {
     display: flex; align-items: center;
-    padding: 6px 20px; min-height: 64px;
+    padding: 0 16px; min-height: 52px;
     background: linear-gradient(180deg, rgba(16,20,36,0.98), rgba(12,16,28,0.96));
     backdrop-filter: blur(24px);
     border-bottom: 1px solid var(--glass-border);
     flex-shrink: 0; z-index: 10;
-    position: relative; gap: 8px;
+    position: relative; gap: 10px;
   }
-  /* Top accent glow line */
   header::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
     background: linear-gradient(90deg, transparent 5%, var(--accent) 30%, var(--accent3) 50%, var(--accent) 70%, transparent 95%);
@@ -96,10 +95,9 @@
   }
 
   .nav-section {
-    display: flex; align-items: center; gap: 12px;
-    height: 100%;
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
   }
-  .nav-section-center { flex: 1; display: flex; justify-content: center; min-width: 0; }
+  .nav-section-right { margin-left: auto; gap: 6px; }
 
   .logo {
     font-weight: 800; font-size: 15px; color: #fff;
@@ -167,29 +165,26 @@
   }
 
 
-  /* Slide counter pill */
+  /* Compact slide counter pill (now in left nav section) */
   .slide-pill {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 3px;
     background: var(--surface); border: 1px solid var(--glass-border);
-    border-radius: 24px; padding: 6px 10px 6px 14px; font-size: 13px; color: var(--text2);
-    transition: all var(--transition);
+    border-radius: 20px; padding: 3px 3px 3px 5px;
+    font-size: 12px; color: var(--text2);
     user-select: none;
   }
-  .slide-pill:hover { border-color: var(--glass-border-hover); }
-  .slide-pill svg { opacity: 0.5; }
-  .slide-pill strong { color: #fff; font-weight: 700; font-size: 14px; }
-  .slide-pill .pill-nav {
-    display: flex; gap: 2px; margin-left: 4px;
-  }
+  .slide-pill strong { color: #fff; font-weight: 700; font-size: 13px; }
+  .pill-label { padding: 0 4px; }
+  .pill-sep { color: var(--text3); margin: 0 2px; }
   .slide-pill .pill-nav-btn {
-    width: 26px; height: 26px; border-radius: 50%;
-    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+    width: 22px; height: 22px; border-radius: 50%;
+    background: transparent; border: none;
     color: var(--text3); cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: all var(--transition);
   }
-  .slide-pill .pill-nav-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent2); }
-  .slide-pill .pill-nav-btn svg { width: 12px; height: 12px; }
+  .slide-pill .pill-nav-btn:hover { background: var(--accent-soft); color: var(--accent2); }
+  .slide-pill .pill-nav-btn svg { width: 11px; height: 11px; }
 
   /* Action button groups */
   .header-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; overflow: visible; }
@@ -247,6 +242,75 @@
   }
   .action-group .btn-action.bulk-btn svg { opacity: 0.8; }
   .action-group .group-sep { width: 1px; height: 18px; background: var(--glass-border); margin: 0 1px; }
+
+  /* Danger (delete) button */
+  .action-group .btn-action.btn-danger {
+    color: var(--red, #f87171);
+  }
+  .action-group .btn-action.btn-danger:hover {
+    background: rgba(248,113,113,0.12); color: #fff; border-color: rgba(248,113,113,0.3);
+  }
+  .action-group .btn-action.btn-danger svg { opacity: 0.8; }
+
+  /* Right-side standalone buttons */
+  .btn-present {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.4);
+    background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(124,58,237,0.12));
+    color: var(--accent2); font-size: 12px; font-weight: 600;
+    font-family: inherit; cursor: pointer; transition: all var(--transition);
+    white-space: nowrap;
+  }
+  .btn-present:hover { background: linear-gradient(135deg, var(--accent), #6366f1); color: #fff; border-color: transparent; }
+  .btn-present svg { width: 13px; height: 13px; opacity: 0.9; }
+
+  .btn-help {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border);
+    color: var(--text3); cursor: pointer; display: flex; align-items: center;
+    justify-content: center; transition: all var(--transition); flex-shrink: 0;
+  }
+  .btn-help:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent2); }
+  .btn-help svg { width: 15px; height: 15px; }
+
+  /* ⋯ More dropdown */
+  .more-dropdown { position: relative; }
+  .btn-more {
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 10px; border-radius: 8px;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border);
+    color: var(--text2); font-size: 12px; font-weight: 500;
+    font-family: inherit; cursor: pointer; transition: all var(--transition);
+  }
+  .btn-more:hover { background: rgba(255,255,255,0.08); color: var(--text); border-color: var(--glass-border-hover); }
+  .btn-more svg { width: 14px; height: 14px; opacity: 0.7; }
+  .btn-more .caret { width: 9px; height: 9px; opacity: 0.5; }
+
+  .more-menu {
+    display: none; position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--glass); backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border); border-radius: 12px;
+    padding: 6px; min-width: 200px; z-index: 300;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  .more-menu.open { display: block; }
+  .more-menu-section {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--text3); padding: 6px 10px 3px; pointer-events: none;
+  }
+  .more-menu-divider { height: 1px; background: var(--glass-border); margin: 4px 0; }
+  .more-menu-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 10px; border-radius: 7px; border: none; width: 100%;
+    background: transparent; color: var(--text2); font-size: 12px;
+    font-weight: 500; font-family: inherit; cursor: pointer;
+    transition: all var(--transition); text-align: left;
+  }
+  .more-menu-item:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+  .more-menu-item svg { width: 14px; height: 14px; opacity: 0.55; flex-shrink: 0; }
+  .more-menu-item:hover svg { opacity: 1; }
+  .more-menu-item .fmt-tag { margin-left: auto; }
+  .fmt-tag.tag-amber { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
 
   /* Export dropdown */
   .export-dropdown { position: relative; }
@@ -314,17 +378,25 @@
   .canvas-empty-state .empty-btn.primary:hover { filter: brightness(1.15); }
   .canvas-empty-state .empty-btn svg { width: 14px; height: 14px; }
 
-  /* On narrow screens, hide only the per-button text labels — keep the group
-     headings ("File", "Edit", "Export") so users still see what each cluster is. */
-  @media (max-width: 1400px) {
+  /* Responsive header: hide text labels first, then deck name */
+  @media (max-width: 1500px) {
     .action-group .btn-action .act-label { display: none; }
     .export-dropdown-btn .act-label { display: none; }
-    .action-group .btn-action { padding: 6px 8px; }
+    .btn-present .act-label { display: none; }
+    .btn-more .act-label { display: none; }
+    .btn-more .caret { display: none; }
+    .action-group .btn-action { padding: 5px 7px; }
     .header-actions { gap: 4px; }
+    .nav-section { gap: 6px; }
+  }
+  @media (max-width: 1200px) {
+    .deck-name { display: none; }
+    .action-group .btn-action { padding: 5px 6px; }
+    .header-actions { gap: 3px; }
   }
   @media (max-width: 900px) {
-    .nav-section-center { display: none; }
-    header { flex-wrap: wrap; min-height: auto; padding: 8px 12px; gap: 6px; }
+    .slide-pill { display: none; }
+    header { flex-wrap: wrap; min-height: auto; padding: 6px 10px; gap: 6px; }
   }
 
   /* ── Main Layout ───────────────────────────────────────────────────── */

@@ -2441,12 +2441,25 @@ function toggleExportMenu(e) {
 function closeExportMenu() {
   document.getElementById('export-menu').classList.remove('open');
 }
+function toggleMoreMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('more-menu');
+  const exportMenu = document.getElementById('export-menu');
+  exportMenu.classList.remove('open');
+  menu.classList.toggle('open');
+}
+function closeMoreMenu() {
+  const m = document.getElementById('more-menu');
+  if (m) m.classList.remove('open');
+}
 document.addEventListener('click', (e) => {
-  const menu = document.getElementById('export-menu');
-  if (menu && !e.target.closest('.export-dropdown')) menu.classList.remove('open');
+  const exportMenu = document.getElementById('export-menu');
+  if (exportMenu && !e.target.closest('.export-dropdown')) exportMenu.classList.remove('open');
+  const moreMenu = document.getElementById('more-menu');
+  if (moreMenu && !e.target.closest('.more-dropdown')) moreMenu.classList.remove('open');
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeExportMenu();
+  if (e.key === 'Escape') { closeExportMenu(); closeMoreMenu(); }
 });
 
 // ══════════════════════════════════════════════════════════════════════════
