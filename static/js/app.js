@@ -1664,7 +1664,8 @@ async function exportPPTX() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = 'Cyber_Resilience_Edited.pptx';
+    const basePptx = currentDeckName ? currentDeckName.replace(/\.pptx$/i, '') : 'SlideCraft_Export';
+    a.download = basePptx + '_Edited.pptx';
     a.click();
     URL.revokeObjectURL(url);
     showToast('PPTX downloaded!', 'success');
@@ -1746,7 +1747,8 @@ async function exportPDF() {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = 'Cyber_Resilience_Edited.pdf';
+      const basePdf = currentDeckName ? currentDeckName.replace(/\.pptx$/i, '') : 'SlideCraft_Export';
+    a.download = basePdf + '_Edited.pdf';
       a.click();
       URL.revokeObjectURL(url);
       showToast('PDF downloaded!', 'success');
@@ -3770,6 +3772,8 @@ document.getElementById('help-modal').addEventListener('click', function(e) {
 // ══════════════════════════════════════════════════════════════════════════
 // DECK INFO / SLIDE STRUCTURE OPS
 // ══════════════════════════════════════════════════════════════════════════
+let currentDeckName = '';
+
 async function refreshDeckInfo() {
   try {
     const resp = await fetch('/api/deck/info');
@@ -3779,10 +3783,12 @@ async function refreshDeckInfo() {
     const txt = document.getElementById('deck-name-text');
     if (!el || !txt) return;
     if (data.deck_name) {
+      currentDeckName = data.deck_name;
       txt.textContent = data.deck_name;
       el.classList.add('has-deck');
       el.title = data.deck_name;
     } else {
+      currentDeckName = '';
       txt.textContent = 'No deck loaded';
       el.classList.remove('has-deck');
       el.title = 'No deck loaded';
