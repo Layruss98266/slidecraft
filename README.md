@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue?style=flat-square&logo=python&logoColor=white"/>
   <img src="https://img.shields.io/badge/flask-3.x-green?style=flat-square&logo=flask&logoColor=white"/>
   <img src="https://img.shields.io/badge/features-45+-purple?style=flat-square"/>
-  <img src="https://img.shields.io/badge/routes-62-orange?style=flat-square"/>
+  <img src="https://img.shields.io/badge/routes-61-orange?style=flat-square"/>
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square"/>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square"/>
 </p>
@@ -252,9 +252,9 @@ The launcher creates `.venv/`, installs `requirements.txt`, auto-installs LibreO
 
 ## How to Run
 
-### Option A — quick start (after first-time setup)
+### Option A — quick start
 
-Double-click **`start.bat`** (Windows) — activates the venv and starts the server instantly, no setup checks.
+Double-click **`start.bat`** (Windows) — uses the venv Python directly. If `.venv` is missing, it delegates to `run.bat` automatically for first-time setup.
 
 ```cmd
 :: Windows — fastest daily launcher
@@ -447,8 +447,8 @@ This installs all required packages:
 | `numpy` | Array operations | (with opencv) |
 | `torch` | AI backend for EasyOCR | ~200-800 MB |
 | `rembg` | Background removal from image overlays | ~170 MB |
-| `pdf2image` | Higher-fidelity PPTX→PDF→JPG conversion | ~5 MB |
-| `PyMuPDF` | Fallback PDF→JPG renderer | ~15 MB |
+| `PyMuPDF` | Primary PDF→JPG renderer (no external binary required) | ~15 MB |
+| `pdf2image` | Fallback PDF→JPG conversion (requires poppler) | ~5 MB |
 
 > **Note:** First install may take 2-5 minutes. The `torch` package is the largest (~200MB CPU-only).
 
@@ -640,7 +640,7 @@ slidecraft/
 
 ---
 
-## API Reference (62 Routes)
+## API Reference (61 Routes)
 
 ### Slide Endpoints
 | Method | Endpoint | Description |
@@ -650,7 +650,6 @@ slidecraft/
 | `POST` | `/api/slide/<num>` | Save overlays + notes |
 | `POST` | `/api/slide/<num>/bake` | Burn overlays into slide image |
 | `POST` | `/api/slide/<num>/preview` | Render composite preview with overlays |
-| `POST` | `/api/slide/<num>/filter` | Apply image filter (single) |
 | `POST` | `/api/slide/<num>/filters` | Apply multiple image filters at once |
 | `POST` | `/api/slide/<num>/crop` | Crop slide image |
 | `POST` | `/api/slide/<num>/rotate` | Rotate slide image |
@@ -807,5 +806,5 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 <p align="center">
   Built with Flask + Pillow + OpenCV + EasyOCR + MoviePy<br>
-  <strong>62 API routes | 45+ features | 0 build steps</strong>
+  <strong>61 API routes | 45+ features | 0 build steps</strong>
 </p>

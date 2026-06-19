@@ -44,7 +44,7 @@ First slide upload triggers a one-time ~64 MB EasyOCR model download to `~/.Easy
 | Component | Required for | Notes |
 |---|---|---|
 | **ffmpeg** | Video logo removal | moviepy bundles a portable `imageio-ffmpeg` binary, so you usually don't need a system install. |
-| **poppler** | Faster PPTX→image conversion | If `pdf2image` is installed and finds poppler, conversion is faster than the PyMuPDF fallback. Optional. |
+| **poppler** | Fallback PPTX→image conversion | Only needed if PyMuPDF fails. The app uses PyMuPDF (no external binary) as primary; `pdf2image` + poppler is the fallback. Fully optional. |
 | **fonts** | Text rendering | The app looks in OS font dirs (Windows `C:\Windows\Fonts`, macOS `/Library/Fonts`, Linux `/usr/share/fonts`). If a font isn't found, it falls back to Pillow's default. |
 
 ---
@@ -129,7 +129,7 @@ HOST=0.0.0.0 PORT=8080 MAX_UPLOAD_MB=200 python app.py
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest tests/
-# Expect 70+ passing tests, ~15 seconds end-to-end.
+# Expect 88 passing tests, ~15 seconds end-to-end.
 ```
 
 CI runs the same suite on Ubuntu + Windows × Python 3.11 + 3.12 via `.github/workflows/test.yml` on every push.
