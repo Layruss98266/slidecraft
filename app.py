@@ -335,25 +335,6 @@ def _convert_pptx_to_images_libreoffice(pptx_path, output_dir=None):
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _convert_pptx_to_images_pillow(pptx_path, output_dir=None):
-    """Fallback: extract embedded pictures from PPTX shapes (limited fidelity)."""
-    dest = output_dir or SLIDES_DIR
-    prs = Presentation(str(pptx_path))
-    sw_emu, sh_emu = prs.slide_width, prs.slide_height
-
-    for i, slide in enumerate(prs.slides):
-        img = Image.new("RGB", (SLIDE_W_PX, SLIDE_H_PX), (255, 255, 255))
-        for shape in slide.shapes:
-            if shape.shape_type == 13:  # Picture
-                shape_img = Image.open(io.BytesIO(shape.image.blob))
-                left = int(shape.left / sw_emu * SLIDE_W_PX) if sw_emu else 0
-                top  = int(shape.top  / sh_emu * SLIDE_H_PX) if sh_emu else 0
-                sw   = int(shape.width  / sw_emu * SLIDE_W_PX) if sw_emu else SLIDE_W_PX
-                sh   = int(shape.height / sh_emu * SLIDE_H_PX) if sh_emu else SLIDE_H_PX
-                img.paste(shape_img.resize((sw, sh), Image.BILINEAR), (left, top))
-        img.save(str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
-
-
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -2931,10 +2912,7 @@ def batch_remove_logo():
                 file_slides_dir.mkdir(exist_ok=True)
 
                 # Convert PPTX to images (reuse shared conversion functions)
-                try:
-                    _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
-                except (RuntimeError, FileNotFoundError, subprocess.SubprocessError, OSError):
-                    _convert_pptx_to_images_pillow(input_path, file_slides_dir)
+                _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
 
                 # Remove logos from all slide images
                 slide_images = sorted(file_slides_dir.glob("slide-*.jpg"))
@@ -3039,11 +3017,7 @@ def folder_remove_logo():
             try:
                 file_slides_dir = tmp_dir / "slides"
                 file_slides_dir.mkdir()
-                try:
-                    _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
-                except (RuntimeError, FileNotFoundError,
-                        subprocess.SubprocessError, OSError):
-                    _convert_pptx_to_images_pillow(input_path, file_slides_dir)
+                _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
 
                 slide_images = sorted(file_slides_dir.glob("slide-*.jpg"))
                 if not slide_images:
@@ -3557,9 +3531,15 @@ def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
             original.close()
             clean.close()
             temp_path.unlink(missing_ok=True)
-        except Exception:
+        except ImportError:
             if temp_path.exists():
                 shutil.move(str(temp_path), str(out_path))
+            job["warning"] = "moviepy not installed — audio track not restored"
+        except Exception as _mux_err:
+            if temp_path.exists():
+                shutil.move(str(temp_path), str(out_path))
+            job["warning"] = f"Audio muxing failed, output is video-only: {_mux_err}"
+            print(f"[video-mux] {_mux_err}", file=sys.stderr)
 
         (VIDEO_DIR / f'_temp_audio_{job_id}.m4a').unlink(missing_ok=True)
 
@@ -3601,29 +3581,21 @@ _FEATURE_CTX = {
     "MAX_OVERLAY_IMG_BYTES": MAX_OVERLAY_IMG_BYTES,
 }
 
-try:
-    from app_features import register_feature_routes
-    register_feature_routes(app, _FEATURE_CTX)
-except ImportError as _e:
-    print(f"[features] not loaded: {_e}", file=sys.stderr)
+from app_features import register_feature_routes
+register_feature_routes(app, _FEATURE_CTX)
 
-try:
-    from app_ai import register_ai_routes
-    register_ai_routes(app, _FEATURE_CTX)
-except ImportError as _e:
-    print(f"[ai] not loaded: {_e}", file=sys.stderr)
+from app_ai import register_ai_routes
+register_ai_routes(app, _FEATURE_CTX)
 
-try:
-    from app_auth import register_auth_routes
-    register_auth_routes(app, _FEATURE_CTX)
-except ImportError as _e:
-    print(f"[auth] not loaded: {_e}", file=sys.stderr)
+from app_auth import register_auth_routes
+register_auth_routes(app, _FEATURE_CTX)
 
+# Google Slides integration is optional — requires OAuth credentials in env.
 try:
     from app_gslides import register_gslides_routes
     register_gslides_routes(app, _FEATURE_CTX)
 except ImportError as _e:
-    print(f"[gslides] not loaded: {_e}", file=sys.stderr)
+    print(f"[gslides] optional module not loaded: {_e}", file=sys.stderr)
 
 
 def _clear_session():
