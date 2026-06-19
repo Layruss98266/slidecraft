@@ -4,7 +4,7 @@ Edits NotebookLM image-based slides with text/shape overlays,
 then exports a new editable PPTX.
 """
 
-import os, sys, json, base64, subprocess, shutil, uuid, datetime, re
+import os, sys, json, base64, subprocess, shutil, uuid, datetime, re, atexit
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, send_file, make_response
 from pptx import Presentation
@@ -3609,6 +3609,13 @@ def _clear_session():
         except OSError: pass
 
 
+def _clear_history():
+    """Delete all history snapshots on server exit."""
+    if HISTORY_DIR.exists():
+        shutil.rmtree(HISTORY_DIR, ignore_errors=True)
+        HISTORY_DIR.mkdir(exist_ok=True)
+
+
 if __name__ == "__main__":
     if not _find_libreoffice():
         print(
@@ -3617,6 +3624,7 @@ if __name__ == "__main__":
             file=sys.stderr,
         )
         sys.exit(1)
+    atexit.register(_clear_history)
     _clear_session()
     # Bind to localhost by default. Set HOST=0.0.0.0 to expose on LAN (no auth!).
     host = os.environ.get('HOST', '127.0.0.1')
