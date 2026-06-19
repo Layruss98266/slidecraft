@@ -108,7 +108,7 @@ def _cleanup_old_exports():
     except OSError:
         pass
 
-SLIDE_W_PX, SLIDE_H_PX = 2134, 1200   # actual JPG pixel dimensions
+SLIDE_W_PX, SLIDE_H_PX = 3200, 1800   # slide render dimensions (Matrix 2.5 × 96 dpi)
 
 # Lock for file-based persistence (slide_data.json, comments.json)
 # RLock (reentrant) so nested critical sections — e.g. ops_undo holds the lock
@@ -245,7 +245,7 @@ def remove_logos_batch(slide_files):
     for p in slide_files:
         img = Image.open(p).convert("RGB")
         img = _erase_logo(img)
-        img.save(str(p), quality=95)
+        img.save(str(p), quality=97)
 
 
 def process_uploaded_pptx(pptx_path):
@@ -321,16 +321,17 @@ def _convert_pptx_to_images_libreoffice(pptx_path, output_dir=None):
         try:
             import fitz
             doc = fitz.open(str(pdf_files[0]))
-            mat = fitz.Matrix(2.0, 2.0)
+            mat = fitz.Matrix(2.5, 2.5)  # 2.5× scale ≈ 240 DPI — sharper text/edges
             for i, page in enumerate(doc):
-                pix = page.get_pixmap(matrix=mat)
-                (dest / f"slide-{i+1:02d}.jpg").write_bytes(pix.tobytes("jpeg"))
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                (dest / f"slide-{i+1:02d}.jpg").write_bytes(
+                    pix.tobytes("jpeg", jpg_quality=97))
             doc.close()
         except ImportError:
             from pdf2image import convert_from_path
-            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=200)):
+            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=300)):
                 img.convert("RGB").save(
-                    str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
+                    str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=97)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -1518,7 +1519,7 @@ def export_pdf():
     rest = (Image.open(sf).convert("RGB") for sf in slide_files[1:])
 
     out_path = EXPORT_DIR / f"Slides_Export_{uuid.uuid4().hex[:8]}.pdf"
-    first_img.save(str(out_path), save_all=True, append_images=rest, resolution=150)
+    first_img.save(str(out_path), save_all=True, append_images=rest, resolution=300, quality=97)
 
     return send_file(str(out_path), as_attachment=True, download_name="Slides_Export.pdf")
 
@@ -1627,7 +1628,7 @@ def export_gif():
     frames = []
     for sf in slide_files:
         img = Image.open(sf).convert("RGB")
-        img = img.resize((800, 450), Image.BILINEAR)
+        img = img.resize((1280, 720), Image.LANCZOS)
         frames.append(img)
 
     gif_path = EXPORT_DIR / f"slides_export_{uuid.uuid4().hex[:8]}.gif"
@@ -2246,7 +2247,7 @@ def preview_watermark(num):
     )
     composed = Image.alpha_composite(small, layer).convert("RGB")
     buf = io.BytesIO()
-    composed.save(buf, format="JPEG", quality=80)
+    composed.save(buf, format="JPEG", quality=92)
     buf.seek(0)
     b64 = base64.b64encode(buf.read()).decode()
     return jsonify({"preview": f"data:image/jpeg;base64,{b64}"})
