@@ -539,7 +539,6 @@
   .zoom-control {
     display: flex; align-items: center; gap: 8px; margin-left: 8px;
   }
-  .zoom-control label { font-size: 11px; color: var(--text3); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
   .zoom-slider {
     -webkit-appearance: none; width: 90px; height: 4px;
     background: rgba(255,255,255,0.08); border-radius: 4px; outline: none;
@@ -922,19 +921,6 @@
     display: flex; align-items: center; gap: 8px;
   }
   .modal-card h3 svg { width: 18px; height: 18px; color: var(--accent2); }
-  /* ── NEW: Filters panel ──────────────────────────────────────────────── */
-  .filter-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
-  }
-  .filter-btn {
-    display: flex; align-items: center; justify-content: center; gap: 5px;
-    padding: 8px 10px; border-radius: var(--radius-xs); border: 1px solid var(--glass-border);
-    background: var(--surface); color: var(--text2); font-size: 12px; font-weight: 500;
-    font-family: inherit; cursor: pointer; transition: all var(--transition);
-  }
-  .filter-btn:hover { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
-  .filter-btn svg { width: 14px; height: 14px; opacity: 0.6; }
-
   /* Filter sliders (redesigned) */
   .fx-presets {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;

@@ -333,14 +333,14 @@ def _convert_pptx_to_images_libreoffice(pptx_path, output_dir=None):
             mat = fitz.Matrix(2.5, 2.5)  # 2.5× scale ≈ 240 DPI — sharper text/edges
             for i, page in enumerate(doc):
                 pix = page.get_pixmap(matrix=mat, alpha=False)
-                (dest / f"slide-{i+1:02d}.jpg").write_bytes(
+                (dest / f"slide-{i+1:03d}.jpg").write_bytes(
                     pix.tobytes("jpeg", jpg_quality=97))
             doc.close()
         except ImportError:
             from pdf2image import convert_from_path
             for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=300)):
                 img.convert("RGB").save(
-                    str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=97)
+                    str(dest / f"slide-{i+1:03d}.jpg"), "JPEG", quality=97)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -543,7 +543,9 @@ def preview_slide(num):
         return jsonify({"error": "Invalid slide"}), 400
 
     data   = load_data()
-    payload = request.json
+    payload = _ensure_dict(request.json)
+    if not isinstance(payload.get("overlays", []), list):
+        return jsonify({"error": "Invalid overlay data"}), 400
     data[str(num)] = payload
     save_data(data)
 
@@ -1086,14 +1088,17 @@ def sample_color(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide number"}), 400
 
-    payload = request.json
+    payload = _ensure_dict(request.json)
     img = Image.open(slide_files[num - 1]).convert("RGB")
     w, h = img.size
 
-    x1 = int(payload["x"] * w)
-    y1 = int(payload["y"] * h)
-    x2 = int((payload["x"] + payload["w"]) * w)
-    y2 = int((payload["y"] + payload["h"]) * h)
+    try:
+        x1 = int(payload.get("x", 0.5) * w)
+        y1 = int(payload.get("y", 0.5) * h)
+        x2 = int((payload.get("x", 0.5) + payload.get("w", 0.1)) * w)
+        y2 = int((payload.get("y", 0.5) + payload.get("h", 0.1)) * h)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return jsonify({"error": "Invalid coordinates"}), 400
     x1, y1 = max(0, x1), max(0, y1)
     x2, y2 = min(w, x2), min(h, y2)
 
@@ -1299,10 +1304,10 @@ def reorder_slides():
 
         # Copy to temp with new names
         for new_idx, old_idx in enumerate(new_order, 1):
-            src = SLIDES_DIR / f"slide-{old_idx:02d}.jpg"
-            dst = tmp_dir / f"slide-{new_idx:02d}.jpg"
+            src = SLIDES_DIR / f"slide-{old_idx:03d}.jpg"
+            dst = tmp_dir / f"slide-{new_idx:03d}.jpg"
             if not src.exists():
-                raise RuntimeError(f"Missing slide-{old_idx:02d}.jpg")
+                raise RuntimeError(f"Missing slide-{old_idx:03d}.jpg")
             shutil.copy2(str(src), str(dst))
 
         # All copies succeeded — swap
@@ -1363,7 +1368,6 @@ def manual_save_checkpoint():
 def delete_slide(num):
     """Delete a single slide, renumbering subsequent slides and rekeying
     overlay data + comments to stay aligned."""
-    import copy as _copy
     slide_files = _get_slide_files()
     total = len(slide_files)
     if num < 1 or num > total:
@@ -1373,13 +1377,13 @@ def delete_slide(num):
 
     snapshot = _snapshot_before_destructive("delete")
     try:
-        target = SLIDES_DIR / f"slide-{num:02d}.jpg"
+        target = SLIDES_DIR / f"slide-{num:03d}.jpg"
         if target.exists():
             target.unlink()
         # Shift subsequent files down by one
         for i in range(num + 1, total + 1):
-            src = SLIDES_DIR / f"slide-{i:02d}.jpg"
-            dst = SLIDES_DIR / f"slide-{i-1:02d}.jpg"
+            src = SLIDES_DIR / f"slide-{i:03d}.jpg"
+            dst = SLIDES_DIR / f"slide-{i-1:03d}.jpg"
             if src.exists():
                 shutil.move(str(src), str(dst))
 
@@ -1444,13 +1448,13 @@ def duplicate_slide(num):
     try:
         # Shift slides num+1..total up by one
         for i in range(total, num, -1):
-            src = SLIDES_DIR / f"slide-{i:02d}.jpg"
-            dst = SLIDES_DIR / f"slide-{i+1:02d}.jpg"
+            src = SLIDES_DIR / f"slide-{i:03d}.jpg"
+            dst = SLIDES_DIR / f"slide-{i+1:03d}.jpg"
             if src.exists():
                 shutil.move(str(src), str(dst))
         # Copy the target file to num+1
-        src = SLIDES_DIR / f"slide-{num:02d}.jpg"
-        dst = SLIDES_DIR / f"slide-{num+1:02d}.jpg"
+        src = SLIDES_DIR / f"slide-{num:03d}.jpg"
+        dst = SLIDES_DIR / f"slide-{num+1:03d}.jpg"
         shutil.copy2(str(src), str(dst))
 
         # Rekey slide_data.json
@@ -1509,7 +1513,7 @@ def download_slide_png(num):
     slide_files = _get_slide_files()
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
-    src = SLIDES_DIR / f"slide-{num:02d}.jpg"
+    src = SLIDES_DIR / f"slide-{num:03d}.jpg"
     if not src.exists():
         return jsonify({"error": "Slide not found"}), 404
     buf = io.BytesIO()
@@ -1518,7 +1522,7 @@ def download_slide_png(num):
     deck = _get_deck_name() or "slide"
     base = re.sub(r"[^A-Za-z0-9_\-]", "_", Path(deck).stem)[:60] or "slide"
     return send_file(buf, mimetype="image/png", as_attachment=True,
-                     download_name=f"{base}-slide-{num:02d}.png")
+                     download_name=f"{base}-slide-{num:03d}.png")
 
 
 # ── PDF export route ────────────────────────────────────────────────────────
@@ -1659,55 +1663,6 @@ def export_gif():
 
 
 # ── Image Filters ───────────────────────────────────────────────────────────
-
-@app.route("/api/slide/<int:num>/filter", methods=["POST"])
-def apply_filter(num):
-    """Apply image filter to a slide. Filters: brightness, contrast, blur, grayscale, sepia."""
-    from PIL import ImageEnhance, ImageFilter as PilFilter
-
-    slide_files = _get_slide_files()
-    if num < 1 or num > len(slide_files):
-        return jsonify({"error": "Invalid slide"}), 400
-
-    payload = _ensure_dict(request.json)
-    filter_type = payload.get("filter", "")
-    try:
-        value = float(payload.get("value", 1.0))
-    except (TypeError, ValueError):
-        return jsonify({"error": "value must be numeric"}), 400
-
-    img = Image.open(slide_files[num - 1]).convert("RGB")
-
-    if filter_type == "brightness":
-        img = ImageEnhance.Brightness(img).enhance(value)
-    elif filter_type == "contrast":
-        img = ImageEnhance.Contrast(img).enhance(value)
-    elif filter_type == "saturation":
-        img = ImageEnhance.Color(img).enhance(value)
-    elif filter_type == "blur":
-        img = img.filter(PilFilter.GaussianBlur(radius=value))
-    elif filter_type == "sharpen":
-        img = ImageEnhance.Sharpness(img).enhance(value)
-    elif filter_type == "grayscale":
-        import cv2, numpy as np
-        arr = np.array(img)
-        gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-        img = Image.fromarray(cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB))
-    elif filter_type == "sepia":
-        import numpy as np
-        arr = np.array(img, dtype=np.float64)
-        sepia_filter = np.array([[0.393, 0.769, 0.189],
-                                  [0.349, 0.686, 0.168],
-                                  [0.272, 0.534, 0.131]])
-        sepia = arr @ sepia_filter.T
-        sepia = np.clip(sepia, 0, 255).astype(np.uint8)
-        img = Image.fromarray(sepia)
-    else:
-        return jsonify({"error": f"Unknown filter: {filter_type}"}), 400
-
-    img.save(str(slide_files[num - 1]), quality=95)
-    return jsonify({"ok": True})
-
 
 # ── Multi-filter pipeline ───────────────────────────────────────────────────
 
@@ -2053,7 +2008,7 @@ def _restore_from_snapshot(version_dir: Path, *, scope: str, slide_num=None):
             n = int(slide_num)
         except (TypeError, ValueError):
             raise RuntimeError(f"Invalid slide_num: {slide_num!r}")
-        name = f"slide-{n:02d}.jpg"
+        name = f"slide-{n:03d}.jpg"
         src = version_dir / name
         dst = SLIDES_DIR / name
         if not src.exists():
@@ -2375,13 +2330,15 @@ def remove_watermark(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = request.json
+    payload = _ensure_dict(request.json)
     regions = payload.get("regions", [])
     if not regions:
         return jsonify({"error": "No regions specified"}), 400
 
     snapshot = _snapshot_before_destructive("watermark-remove")
     img = cv2.imread(str(slide_files[num - 1]))
+    if img is None:
+        return jsonify({"error": "Could not read slide image"}), 500
     h, w = img.shape[:2]
 
     mask = np.zeros((h, w), dtype=np.uint8)
@@ -2404,7 +2361,7 @@ def remove_watermark_all():
     import cv2
     import numpy as np
 
-    payload = request.json
+    payload = _ensure_dict(request.json)
     regions = payload.get("regions", [])
     if not regions:
         return jsonify({"error": "No regions specified"}), 400
@@ -2414,6 +2371,8 @@ def remove_watermark_all():
     count = 0
     for sf in slide_files:
         img = cv2.imread(str(sf))
+        if img is None:
+            continue
         h, w = img.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
         for r in regions:
@@ -2726,7 +2685,7 @@ def revert_watermark(entry_id):
 
     if is_current_scope:
         n = int(target["slide_num"])
-        name = f"slide-{n:02d}.jpg"
+        name = f"slide-{n:03d}.jpg"
         src = version_dir / name
         dst = SLIDES_DIR / name
         if not src.exists():
@@ -3376,7 +3335,7 @@ def upload_video():
 @app.route("/api/video/preview-frame", methods=["POST"])
 def video_preview_frame():
     """Get a frame from the video + detect logo region."""
-    payload = request.json
+    payload = _ensure_dict(request.json)
     fname = payload.get("filename", "")
     video_path = VIDEO_DIR / secure_filename(fname)
     if not video_path.exists():
@@ -3427,7 +3386,7 @@ def _cleanup_video_jobs():
 @app.route("/api/video/remove-logo", methods=["POST"])
 def remove_video_logo():
     """Start logo removal job in a background thread, return job_id for polling."""
-    payload = request.json
+    payload = _ensure_dict(request.json)
     fname = payload.get("filename", "")
     lx = float(payload.get("x", 0.85))
     ly = float(payload.get("y", 0.93))

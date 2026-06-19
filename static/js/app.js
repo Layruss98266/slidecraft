@@ -257,6 +257,8 @@ async function gotoSlide(n) {
   overlays = data.overlays || [];
   document.getElementById('notes-text').value = data.notes || '';
   selectedIdx = -1;
+  selectedIdxSet.clear();
+  if (window.multiSel) window.multiSel.clear();
   dirty = false;
   undoStack = [];
   redoStack = [];
@@ -959,7 +961,7 @@ async function handleImageUpload(input) {
       if (selectedIdx >= 0 && overlays[selectedIdx]?.type === 'image') {
         pushUndo();
         overlays[selectedIdx].src = data.src;
-        delete imageCache[selectedIdx];
+        delete imageCache[data.src];
         preloadSingleImage(selectedIdx);
       } else {
         pushUndo();
@@ -998,7 +1000,7 @@ async function removeBgFromSelected() {
     if (data.error) { showToast(data.error, 'error'); return; }
     pushUndo();
     ov.src = data.src;
-    delete imageCache[selectedIdx];
+    delete imageCache[data.src];
     preloadSingleImage(selectedIdx);
     renderOverlays();
     markDirty();
@@ -1018,7 +1020,7 @@ function preloadSingleImage(idx) {
   const ov = overlays[idx];
   if (!ov || ov.type !== 'image' || !ov.src) return;
   const img = new Image();
-  img.onload = () => { imageCache[idx] = img; renderOverlays(); };
+  img.onload = () => { imageCache[ov.src] = img; renderOverlays(); };
   img.src = ov.src;
 }
 
@@ -1029,6 +1031,7 @@ function selectOverlay(idx, addToSelection) {
   if (addToSelection && selectedIdx >= 0) {
     selectedIdxSet.add(selectedIdx);
     selectedIdxSet.add(idx);
+    if (window.multiSel) { window.multiSel.add(selectedIdx); window.multiSel.add(idx); }
     selectedIdx = idx;
     document.querySelectorAll('.ov-item').forEach((el,i) =>
       el.classList.toggle('selected', selectedIdxSet.has(i) || i === idx));
@@ -1037,6 +1040,7 @@ function selectOverlay(idx, addToSelection) {
     return;
   }
   selectedIdxSet.clear();
+  if (window.multiSel) window.multiSel.clear();
   selectedIdx = idx;
   document.querySelectorAll('.ov-item').forEach((el,i) => el.classList.toggle('selected', i===idx));
   showPropsForm(overlays[idx]);
@@ -1046,6 +1050,7 @@ function selectOverlay(idx, addToSelection) {
 function deselectOverlay() {
   selectedIdx = -1;
   selectedIdxSet.clear();
+  if (window.multiSel) window.multiSel.clear();
   document.querySelectorAll('.ov-item').forEach(el => el.classList.remove('selected'));
   hidePropsForm();
   renderOverlays();
@@ -1234,7 +1239,7 @@ function renderOverlays() {
       ctx.fillStyle = ov.fillColor || '#2563EB';
       ctx.fillRect(x, y, w, h);
     } else if (ov.type === 'image') {
-      const cached = imageCache[i];
+      const cached = imageCache[ov.src];
       if (cached) {
         ctx.drawImage(cached, x, y, w, h);
       } else {
@@ -1910,8 +1915,6 @@ document.addEventListener('keydown', e => {
 document.getElementById('shortcuts-modal').addEventListener('click', function(e) {
   if (e.target === this) this.classList.remove('show');
 });
-
-window.addEventListener('resize', () => { resizeCanvas(); renderOverlays(); });
 
 // ══════════════════════════════════════════════════════════════════════════
 // COPY / PASTE
@@ -3576,7 +3579,7 @@ async function applyCrop(rect) {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       const pad = String(currentSlide).padStart(2, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
@@ -3604,7 +3607,7 @@ async function rotateSlide(angle) {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       const pad = String(currentSlide).padStart(2, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
@@ -3722,7 +3725,7 @@ async function restoreVersion(version) {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       document.getElementById('history-modal').classList.remove('show');
       showToast('Version restored! Reloading...', 'success');
       setTimeout(() => location.reload(), 800);
@@ -3785,7 +3788,7 @@ async function saveTemplate() {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       showToast(`Template "${name}" saved!`, 'success');
       document.getElementById('tpl-name').value = '';
       loadTemplates();
@@ -3809,7 +3812,7 @@ async function loadTemplate(name) {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       document.getElementById('templates-modal').classList.remove('show');
       showToast('Template loaded! Reloading...', 'success');
       setTimeout(() => location.reload(), 800);
@@ -3831,7 +3834,7 @@ async function deleteTemplate(name) {
       body: JSON.stringify({ name })
     });
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       showToast('Template deleted', 'success');
       loadTemplates();
     } else {
@@ -3960,7 +3963,8 @@ document.addEventListener('keydown', e => {
     document.getElementById('help-modal').classList.remove('show');
     cancelComment();
   }
-  if (e.key === 'h' || e.key === 'H') openHelpModal();
+  const inInput2 = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
+  if ((e.key === 'h' || e.key === 'H') && !inInput2) openHelpModal();
 });
 
 // ══════════════════════════════════════════════════════════════════════════
