@@ -588,6 +588,10 @@
     border-left: 1px solid var(--glass-border);
     display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
   }
+  @media (max-width: 900px) {
+    .right-panel { overflow-y: auto; }
+    .panel-body  { overflow-y: visible; }
+  }
 
   .panel-tabs {
     display: flex; border-bottom: 1px solid var(--glass-border);
@@ -786,8 +790,8 @@
   .save-check svg { width: 14px; height: 14px; }
 
   /* ── NEW: Thumb drag reorder ───────────────────────────────────────── */
-  .thumb-item.drag-over-top { border-top: 3px solid var(--accent2); }
-  .thumb-item.drag-over-bottom { border-bottom: 3px solid var(--accent2); }
+  .thumb-item.drag-over-top    { border-top: 3px solid var(--accent2); background: rgba(99,102,241,0.08); border-radius: 6px; }
+  .thumb-item.drag-over-bottom { border-bottom: 3px solid var(--accent2); background: rgba(99,102,241,0.08); border-radius: 6px; }
   .thumb-item.dragging { opacity: 0.4; }
 
   /* ── NEW: Presentation mode ────────────────────────────────────────── */

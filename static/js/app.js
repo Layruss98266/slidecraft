@@ -22,6 +22,7 @@ const NUM_SLIDES = window.NUM_SLIDES || 0;
 let currentSlide = 1;
 let overlays = [];
 let selectedIdx = -1;
+let selectedIdxSet = new Set();
 let currentTool = 'select';
 let isDragging = false;
 let isDrawing = false;
@@ -136,7 +137,11 @@ async function undo() {
       // Refresh per-slide overlay state from server (data.json was rewritten)
       gotoSlide(currentSlide);
       refreshAppliedBadge();
-      refreshServerUndoState();
+      await refreshServerUndoState();
+      // Reset filter sliders to neutral — server image has reverted
+      if (typeof _fxWrite === 'function' && typeof FX_DEFAULTS !== 'undefined') {
+        _fxWrite(FX_DEFAULTS); updateFxLive();
+      }
       showToast('Undid: ' + (data.text || data.kind || 'last action'), 'success');
     } else if (data.reason) {
       showToast(data.reason, 'info');
@@ -410,7 +415,7 @@ function onMouseDown(e) {
     const hit = hitTest(nx, ny);
     if (hit >= 0) {
       if (hit !== selectedIdx) pushUndo();
-      selectOverlay(hit);
+      selectOverlay(hit, e.shiftKey);
       isDragging = true;
       dragOffset = { x: nx - overlays[hit].x, y: ny - overlays[hit].y };
     } else {
@@ -1020,7 +1025,18 @@ function preloadSingleImage(idx) {
 // ══════════════════════════════════════════════════════════════════════════
 // SELECTION
 // ══════════════════════════════════════════════════════════════════════════
-function selectOverlay(idx) {
+function selectOverlay(idx, addToSelection) {
+  if (addToSelection && selectedIdx >= 0) {
+    selectedIdxSet.add(selectedIdx);
+    selectedIdxSet.add(idx);
+    selectedIdx = idx;
+    document.querySelectorAll('.ov-item').forEach((el,i) =>
+      el.classList.toggle('selected', selectedIdxSet.has(i) || i === idx));
+    showPropsForm(overlays[idx]);
+    renderOverlays();
+    return;
+  }
+  selectedIdxSet.clear();
   selectedIdx = idx;
   document.querySelectorAll('.ov-item').forEach((el,i) => el.classList.toggle('selected', i===idx));
   showPropsForm(overlays[idx]);
@@ -1029,6 +1045,7 @@ function selectOverlay(idx) {
 
 function deselectOverlay() {
   selectedIdx = -1;
+  selectedIdxSet.clear();
   document.querySelectorAll('.ov-item').forEach(el => el.classList.remove('selected'));
   hidePropsForm();
   renderOverlays();
@@ -1038,8 +1055,15 @@ function deleteSelected() {
   hideContextMenu();
   if (selectedIdx < 0) return;
   pushUndo();
-  overlays.splice(selectedIdx, 1);
-  selectedIdx = -1;
+  if (selectedIdxSet.size > 1) {
+    const toDelete = new Set(selectedIdxSet);
+    overlays = overlays.filter((_, i) => !toDelete.has(i));
+    selectedIdxSet.clear();
+    selectedIdx = -1;
+  } else {
+    overlays.splice(selectedIdx, 1);
+    selectedIdx = -1;
+  }
   renderOverlayList(); renderOverlays(); hidePropsForm(); markDirty();
 }
 
@@ -1853,6 +1877,7 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveCurrentSlide(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'A') { e.preventDefault(); bakeOverlays(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !inInput) { e.preventDefault(); copyOverlay(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !inInput) { e.preventDefault(); pasteOverlay(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'd' && !inInput) {

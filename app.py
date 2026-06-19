@@ -94,6 +94,15 @@ ORIGINALS_DIR.mkdir(parents=True, exist_ok=True)
 # Max age (seconds) for files in EXPORT_DIR. Older files purged on next export.
 EXPORT_TTL_SECONDS = int(os.environ.get('EXPORT_TTL_SECONDS', 24 * 3600))
 
+def _check_disk_space(path, required_mb=200):
+    """Return True if path's partition has at least required_mb free."""
+    try:
+        free = shutil.disk_usage(path).free
+        return free >= required_mb * 1024 * 1024
+    except OSError:
+        return True  # can't check — allow through
+
+
 def _cleanup_old_exports():
     """Best-effort cleanup of EXPORT_DIR files older than EXPORT_TTL_SECONDS."""
     import time as _t
@@ -312,7 +321,7 @@ def _convert_pptx_to_images_libreoffice(pptx_path, output_dir=None):
         subprocess.run(
             [lo_cmd, "--headless", "--convert-to", "pdf",
              "--outdir", str(tmp_dir), str(pptx_path)],
-            check=True, timeout=120,
+            check=True, timeout=45,
         )
         pdf_files = list(tmp_dir.glob("*.pdf"))
         if not pdf_files:
@@ -368,7 +377,12 @@ def upload_pptx():
     try:
         process_uploaded_pptx(save_path)
     except Exception as e:
-        return jsonify({"error": f"Processing failed: {e}"}), 500
+        print(f"[upload] processing error: {e}", file=sys.stderr)
+        try:
+            save_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return jsonify({"error": "Processing failed — check the file is a valid PPTX and try again."}), 500
 
     _set_deck_name(f.filename)
     return jsonify({"ok": True, "num_slides": len(_get_slide_files()),
@@ -479,6 +493,8 @@ def save_slide(num):
 @app.route("/api/export", methods=["POST"])
 def export_pptx():
     """Rebuild PPTX: slide image as background + text overlays as real text boxes."""
+    if not _check_disk_space(EXPORT_DIR):
+        return jsonify({"error": "Not enough disk space to export. Free up space and try again."}), 507
     _cleanup_old_exports()
     data = load_data()
     prs  = Presentation()
@@ -1510,6 +1526,8 @@ def download_slide_png(num):
 @app.route("/api/export-pdf", methods=["POST"])
 def export_pdf():
     """Export slides as a multi-page PDF."""
+    if not _check_disk_space(EXPORT_DIR):
+        return jsonify({"error": "Not enough disk space to export. Free up space and try again."}), 507
     _cleanup_old_exports()
     slide_files = _get_slide_files()
     if not slide_files:
@@ -1594,6 +1612,8 @@ def _add_overlay(slide, ov, slide_w, slide_h):
 @app.route("/api/export-png-zip", methods=["POST"])
 def export_png_zip():
     """Export all slides as a ZIP of PNG images."""
+    if not _check_disk_space(EXPORT_DIR):
+        return jsonify({"error": "Not enough disk space to export. Free up space and try again."}), 507
     _cleanup_old_exports()
     import zipfile
     slide_files = _get_slide_files()
