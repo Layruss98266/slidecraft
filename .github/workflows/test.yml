@@ -24,13 +24,13 @@ jobs:
           cache: pip
 
       - name: Install LibreOffice (required)
+        shell: bash
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
             sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libreoffice
           elif [ "$RUNNER_OS" = "Windows" ]; then
-            winget install --id TheDocumentFoundation.LibreOffice --silent --accept-package-agreements --accept-source-agreements
+            choco install libreoffice -y --no-progress
           fi
-        shell: bash
 
       - name: Install dependencies
         run: |
