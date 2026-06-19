@@ -255,10 +255,7 @@ def process_uploaded_pptx(pptx_path):
     SLIDES_DIR.mkdir(parents=True, exist_ok=True)
     stage_dir = Path(tempfile.mkdtemp(prefix="slides_stage_"))
     try:
-        try:
-            _convert_pptx_to_images_libreoffice(pptx_path, stage_dir)
-        except (RuntimeError, FileNotFoundError, subprocess.SubprocessError, OSError):
-            _convert_pptx_to_images_pillow(pptx_path, stage_dir)
+        _convert_pptx_to_images_libreoffice(pptx_path, stage_dir)
 
         staged = sorted(stage_dir.glob("slide-*.jpg"))
         if not staged:
@@ -3640,6 +3637,13 @@ def _clear_session():
 
 
 if __name__ == "__main__":
+    if not _find_libreoffice():
+        print(
+            "ERROR: LibreOffice not found. SlideCraft requires LibreOffice for PPTX conversion.\n"
+            "Install from https://www.libreoffice.org/download/download/ and restart.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     _clear_session()
     # Bind to localhost by default. Set HOST=0.0.0.0 to expose on LAN (no auth!).
     host = os.environ.get('HOST', '127.0.0.1')

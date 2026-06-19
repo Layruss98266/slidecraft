@@ -33,11 +33,14 @@ if errorlevel 1 (
 )
 
 :run
-REM Warn if LibreOffice isn't installed
+REM Require LibreOffice — no fallback
 if not exist "C:\Program Files\LibreOffice\program\soffice.exe" (
     where soffice >NUL 2>&1
     if errorlevel 1 (
-        echo !! WARNING: LibreOffice not found. PPTX conversion uses lossy fallback.
+        echo ERROR: LibreOffice not found. SlideCraft requires it for PPTX conversion.
+        echo Install from: https://www.libreoffice.org/download/download/
+        pause
+        exit /b 1
     )
 )
 
