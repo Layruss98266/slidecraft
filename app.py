@@ -433,7 +433,7 @@ def inpaint_region(num):
     slide_files = _get_slide_files()
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     try:
         rx = float(payload.get("x", 0))
         ry = float(payload.get("y", 0))
@@ -471,7 +471,7 @@ def save_slide(num):
     num_slides = len(_get_slide_files())
     if num < 1 or num > max(num_slides, 1):
         return jsonify({"error": "Invalid slide number"}), 400
-    payload = request.json
+    payload = request.get_json(force=True, silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid payload"}), 400
     # Validate expected keys
@@ -543,7 +543,7 @@ def preview_slide(num):
         return jsonify({"error": "Invalid slide"}), 400
 
     data   = load_data()
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     if not isinstance(payload.get("overlays", []), list):
         return jsonify({"error": "Invalid overlay data"}), 400
     data[str(num)] = payload
@@ -1088,7 +1088,7 @@ def sample_color(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide number"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     img = Image.open(slide_files[num - 1]).convert("RGB")
     w, h = img.size
 
@@ -1230,7 +1230,7 @@ def upload_image():
 @app.route("/api/logo/add-overlay", methods=["POST"])
 def add_logo_overlay():
     """Add a logo as a draggable image overlay to one or all slides."""
-    payload = request.json or {}
+    payload = request.get_json(force=True, silent=True) or {}
     src = payload.get("src")
     if not src:
         return jsonify({"error": "No src provided"}), 400
@@ -1267,7 +1267,7 @@ def remove_background():
     """Strip background from a base64 image overlay using rembg."""
     if not HAS_REMBG:
         return jsonify({"error": "rembg not installed — run: pip install rembg"}), 501
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     src = payload.get("src", "")
     if not src.startswith("data:image/"):
         return jsonify({"error": "Invalid image data"}), 400
@@ -1288,7 +1288,7 @@ def remove_background():
 @app.route("/api/reorder", methods=["POST"])
 def reorder_slides():
     """Reorder slide files on disk. Expects {"order": [3,1,2,...]}."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     new_order = payload.get("order", [])
     slide_files = _get_slide_files()
 
@@ -1642,7 +1642,7 @@ def export_png_zip():
 def export_gif():
     """Export slides as an animated GIF slideshow."""
     _cleanup_old_exports()
-    payload = request.json or {}
+    payload = request.get_json(force=True, silent=True) or {}
     duration_ms = int(payload.get("duration", 2000))  # ms per slide
 
     slide_files = _get_slide_files()
@@ -1761,7 +1761,7 @@ def apply_filters_chain(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     scope = str(payload.get("scope", "current"))
     from_original = bool(payload.get("from_original", True))
 
@@ -1812,7 +1812,7 @@ def crop_slide(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     snapshot = _snapshot_before_destructive("crop")
     img = Image.open(slide_files[num - 1]).convert("RGB")
     w, h = img.size
@@ -1836,7 +1836,7 @@ def rotate_slide(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     try:
         angle = int(payload.get("angle", 90))
     except (TypeError, ValueError):
@@ -1856,7 +1856,7 @@ def rotate_slide(num):
 @app.route("/api/qr-generate", methods=["POST"])
 def generate_qr():
     """Generate a QR code as base64 PNG. Requires 'url' in payload."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     url = str(payload.get("url", ""))[:2000]
     if not url:
         return jsonify({"error": "No URL provided"}), 400
@@ -2099,7 +2099,7 @@ def add_watermark():
         color (#rrggbb), font_scale (0.02–0.2), rotation (-90..90 deg),
         tile_spacing (0.5..3.0), scope ("all"|"current"), slide_num (1-based if current).
     """
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     text = str(payload.get("text", "CONFIDENTIAL"))[:200]
     if not text.strip():
         return jsonify({"error": "Text cannot be empty"}), 400
@@ -2187,7 +2187,7 @@ def preview_watermark(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     text = str(payload.get("text", "CONFIDENTIAL"))[:200]
     try:
         opacity = max(0.02, min(1.0, float(payload.get("opacity", 0.15))))
@@ -2330,7 +2330,7 @@ def remove_watermark(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     regions = payload.get("regions", [])
     if not regions:
         return jsonify({"error": "No regions specified"}), 400
@@ -2361,7 +2361,7 @@ def remove_watermark_all():
     import cv2
     import numpy as np
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     regions = payload.get("regions", [])
     if not regions:
         return jsonify({"error": "No regions specified"}), 400
@@ -2941,7 +2941,7 @@ def folder_remove_logo():
     import tempfile
     from flask import Response, stream_with_context
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     raw = payload.get("folder", "")
     if not isinstance(raw, str) or not raw.strip():
         return jsonify({"error": "Missing 'folder' path"}), 400
@@ -3067,7 +3067,7 @@ def list_templates():
 @app.route("/api/templates/save", methods=["POST"])
 def save_template():
     """Save current slides + overlays as a named template."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     name = _safe_name(payload.get("name", "untitled"))
     if not name:
         return jsonify({"error": "Invalid template name (use letters, numbers, _, -, space; max 64)"}), 400
@@ -3092,7 +3092,7 @@ def save_template():
 @app.route("/api/templates/load", methods=["POST"])
 def load_template():
     """Load a template — restore slide images + overlays."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     name = _safe_name(payload.get("name", ""))
     if not name:
         return jsonify({"error": "Invalid template name"}), 400
@@ -3127,7 +3127,7 @@ def load_template():
 @app.route("/api/templates/delete", methods=["POST"])
 def delete_template():
     """Delete a saved template."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     name = _safe_name(payload.get("name", ""))
     if not name:
         return jsonify({"error": "Invalid template name"}), 400
@@ -3178,7 +3178,7 @@ def list_versions():
 @app.route("/api/history/restore", methods=["POST"])
 def restore_version():
     """Restore a previous version."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     raw = payload.get("version", "") or payload.get("name", "")
     # Version names are timestamps + hex, so allow that pattern strictly.
     if not isinstance(raw, str) or not re.match(r"^[A-Za-z0-9_\-]{1,64}$", raw):
@@ -3231,7 +3231,7 @@ def get_comments(num):
 
 @app.route("/api/comments/<int:num>", methods=["POST"])
 def add_comment(num):
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     comment = {
         "text": str(payload.get("text", ""))[:5000],
         "x": float(payload.get("x", 0.5)) if isinstance(payload.get("x", 0.5), (int, float)) else 0.5,
@@ -3249,7 +3249,7 @@ def add_comment(num):
 
 @app.route("/api/comments/<int:num>/resolve", methods=["POST"])
 def resolve_comment(num):
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     try:
         idx = int(payload.get("index", 0))
     except (TypeError, ValueError):
@@ -3265,7 +3265,7 @@ def resolve_comment(num):
 
 @app.route("/api/comments/<int:num>/delete", methods=["POST"])
 def delete_comment(num):
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     try:
         idx = int(payload.get("index", 0))
     except (TypeError, ValueError):
@@ -3284,7 +3284,7 @@ def delete_comment(num):
 @app.route("/api/find-replace", methods=["POST"])
 def find_replace():
     """Find and replace text in overlays across all slides."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     find_text = str(payload.get("find", ""))
     replace_text = str(payload.get("replace", ""))
     if not find_text:
@@ -3335,7 +3335,7 @@ def upload_video():
 @app.route("/api/video/preview-frame", methods=["POST"])
 def video_preview_frame():
     """Get a frame from the video + detect logo region."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     fname = payload.get("filename", "")
     video_path = VIDEO_DIR / secure_filename(fname)
     if not video_path.exists():
@@ -3386,7 +3386,7 @@ def _cleanup_video_jobs():
 @app.route("/api/video/remove-logo", methods=["POST"])
 def remove_video_logo():
     """Start logo removal job in a background thread, return job_id for polling."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     fname = payload.get("filename", "")
     lx = float(payload.get("x", 0.85))
     ly = float(payload.get("y", 0.93))
