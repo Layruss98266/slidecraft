@@ -22,6 +22,7 @@ env/
 slide_data.json
 comments.json
 watermarks_applied.json
+master_slide.json
 cleared_orphans_before.txt
 static/slides/*.jpg
 static/slides/_originals/
@@ -45,3 +46,7 @@ desktop.ini
 # Temp files
 *.tmp
 _temp_*
+
+# Test files
+test_*.pptx
+test_*.ppt

@@ -31,7 +31,7 @@ SlideCraft is a web-based PowerPoint slide editor built for editing **image-base
 - **Process videos** — remove logos with real-time progress and stop control
 - **Export as PPTX, PDF, PNG ZIP, or animated GIF**
 
-Built with Flask + vanilla JS. No React, no build step. Just `python app.py` and go.
+Built with Flask + vanilla JS. No React, no build step. Double-click `start.bat` and go.
 
 ---
 
@@ -242,7 +242,7 @@ cd slidecraft
 #   3. Warn you if LibreOffice isn't installed
 #   4. Start the Flask server on http://127.0.0.1:5050
 ./run.sh              # macOS / Linux  (chmod +x run.sh once if needed)
-# or run.bat          # Windows (cmd.exe / double-click)
+# or run.bat          # Windows — first-time setup + start
 # or .\run.ps1        # Windows (PowerShell)
 ```
 
@@ -252,17 +252,28 @@ The launcher creates `.venv/`, installs `requirements.txt`, warns if LibreOffice
 
 ## How to Run
 
-### Option A — one-command launcher (recommended)
+### Option A — quick start (after first-time setup)
 
-After the install steps above, just re-run the launcher whenever you want to start the editor. It's idempotent — it skips the venv/install steps if they've already been done.
+Double-click **`start.bat`** (Windows) — activates the venv and starts the server instantly, no setup checks.
+
+```cmd
+:: Windows — fastest daily launcher
+start.bat
+```
 
 ```bash
-# macOS / Linux
+# macOS / Linux — after first run
 ./run.sh
 ```
 
+Then open **http://127.0.0.1:5050** in any modern browser (Chrome, Edge, Firefox, Safari).
+
+### Option B — first-time setup launcher
+
+Use `run.bat` / `run.ps1` / `run.sh` on **first run** or after pulling updates. Creates `.venv`, installs dependencies, then starts the server. Subsequent launches skip setup automatically (uses a sentinel file — only re-installs if `requirements.txt` changes).
+
 ```cmd
-:: Windows (cmd.exe)
+:: Windows (cmd.exe) — first run or after git pull
 run.bat
 ```
 
@@ -271,9 +282,12 @@ run.bat
 .\run.ps1
 ```
 
-Then open **http://127.0.0.1:5050** in any modern browser (Chrome, Edge, Firefox, Safari).
+```bash
+# macOS / Linux
+./run.sh
+```
 
-### Option B — manual (if you already have the venv set up)
+### Option C — manual (if you already have the venv set up)
 
 ```bash
 # 1. Activate the virtual environment
@@ -601,6 +615,10 @@ Press `?` in the editor to see the full cheatsheet.
 ```
 slidecraft/
 ├── app.py                  # Flask backend — 62 API routes
+├── start.bat               # Windows quick launcher (daily use — no setup checks)
+├── run.bat                 # Windows first-time setup + launcher
+├── run.ps1                 # Windows PowerShell launcher
+├── run.sh                  # macOS / Linux launcher
 ├── requirements.txt        # Python dependencies
 ├── LICENSE                 # MIT license
 ├── .gitignore              # Git ignore rules

@@ -1,34 +1,43 @@
 @echo off
-REM SlideCraft launcher (Windows). Creates venv, installs deps, runs server.
+REM SlideCraft launcher (Windows).
 REM Usage:   run.bat
-REM          set HOST=0.0.0.0 && run.bat   (LAN-accessible, no auth)
+REM          set HOST=0.0.0.0 && run.bat   (LAN-accessible)
 setlocal
 cd /d "%~dp0"
 
-if not exist .venv (
+REM --- One-time setup: only runs when venv is missing ---
+if not exist .venv\Scripts\activate.bat (
     echo ^>^> First run: creating .venv
     python -m venv .venv
     if errorlevel 1 (
         echo Failed to create venv. Make sure Python 3.10+ is installed and on PATH.
+        pause
         exit /b 1
     )
+    call .venv\Scripts\activate.bat
+    echo ^>^> Installing dependencies...
+    pip install --quiet --upgrade pip
+    pip install --quiet -r requirements.txt
+    echo requirements.txt > .venv\.installed
+    goto run
 )
 
 call .venv\Scripts\activate.bat
 
-python -c "import flask" >NUL 2>&1
+REM --- Re-install only if requirements.txt changed since last install ---
+fc /b requirements.txt .venv\.installed >NUL 2>&1
 if errorlevel 1 (
-    echo ^>^> Installing dependencies (one-time, ~3 min)
-    pip install --upgrade pip
-    pip install -r requirements.txt
+    echo ^>^> requirements.txt changed — updating deps...
+    pip install --quiet -r requirements.txt
+    copy /y requirements.txt .venv\.installed >NUL
 )
 
+:run
 REM Warn if LibreOffice isn't installed
-where soffice >NUL 2>&1
-if errorlevel 1 (
-    if not exist "C:\Program Files\LibreOffice\program\soffice.exe" (
-        echo !! WARNING: LibreOffice not found. PPTX-^>slide conversion will use a
-        echo !! lossy Pillow fallback. Install from https://libreoffice.org/download
+if not exist "C:\Program Files\LibreOffice\program\soffice.exe" (
+    where soffice >NUL 2>&1
+    if errorlevel 1 (
+        echo !! WARNING: LibreOffice not found. PPTX conversion uses lossy fallback.
     )
 )
 
