@@ -235,7 +235,7 @@ async function gotoSlide(n) {
   if (typeof clearFxPreviewOnNav === 'function') clearFxPreviewOnNav();
 
   currentSlide = n;
-  const pad = String(n).padStart(2, '0');
+  const pad = String(n).padStart(3, '0');
 
   slideImg.style.opacity = '0.5';
   slideImg.src = `/static/slides/slide-${pad}.jpg`;
@@ -778,7 +778,7 @@ async function createCoverFromOCR(region) {
     showToast('Inpaint failed (' + e.message + ') — overlay will sit on top of original text', 'error');
   }
   hideLoading();
-  const pad2 = String(currentSlide).padStart(2, '0');
+  const pad2 = String(currentSlide).padStart(3, '0');
   const newSrc = `/static/slides/slide-${pad2}.jpg?t=${Date.now()}`;
   slideImg.src = newSrc;
   const thumb = document.querySelector(`#thumb-${currentSlide} img`);
@@ -1665,7 +1665,7 @@ async function bakeOverlays() {
       // Reload the slide image (cache bust) and clear overlays
       overlays = [];
       selectedIdx = -1;
-      const pad = String(currentSlide).padStart(2, '0');
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       // Also update thumbnail
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
@@ -1964,7 +1964,7 @@ function presNavigate(dir) {
 }
 
 async function renderPresSlide() {
-  const pad = String(presSlide).padStart(2, '0');
+  const pad = String(presSlide).padStart(3, '0');
   const presCanvas = document.getElementById('pres-canvas');
   const pCtx = presCanvas.getContext('2d');
 
@@ -2765,7 +2765,7 @@ async function resetFxToOriginal() {
     const data = await resp.json();
     if (data.ok) {
       resetFxSliders();
-      const pad = String(currentSlide).padStart(2, '0');
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
       if (thumb) thumb.src = slideImg.src;
@@ -2809,11 +2809,11 @@ async function applyFiltersNow() {
       // Clear the CSS preview; the new JPG already has the filters baked
       slideImg.style.filter = '';
       const t = Date.now();
-      const pad = String(currentSlide).padStart(2, '0');
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${t}`;
       // Reload all thumbnails too (in case scope=all)
       for (let i = 1; i <= NUM_SLIDES; i++) {
-        const tp = String(i).padStart(2, '0');
+        const tp = String(i).padStart(3, '0');
         const tn = document.querySelector(`#thumb-${i} img`);
         if (tn) tn.src = `/static/slides/slide-${tp}.jpg?t=${t}`;
       }
@@ -2918,7 +2918,7 @@ function switchWmTab(tab) {
   } else if (tab === 'detect') {
     document.getElementById('wm-detect-num').textContent = currentSlide;
     const detectImg = document.getElementById('wm-detect-img');
-    const pad = String(currentSlide).padStart(2, '0');
+    const pad = String(currentSlide).padStart(3, '0');
     detectImg.src = '/static/slides/slide-' + pad + '.jpg?t=' + Date.now();
     detectWatermarks();
   } else if (tab === 'applied') {
@@ -3003,7 +3003,7 @@ function renderImagePreview() {
   const wmImgEl = document.getElementById('wm-image-preview');
   const baseImg = new Image();
   const previewImg = document.getElementById('wm-preview-img');
-  const pad = String(currentSlide).padStart(2, '0');
+  const pad = String(currentSlide).padStart(3, '0');
   baseImg.crossOrigin = 'anonymous';
   baseImg.onload = () => {
     const canvas = document.createElement('canvas');
@@ -3073,11 +3073,11 @@ async function renderTextPreview() {
 function reloadAllSlides() {
   const t = Date.now();
   for (let i = 1; i <= NUM_SLIDES; i++) {
-    const pad = String(i).padStart(2, '0');
+    const pad = String(i).padStart(3, '0');
     const thumb = document.querySelector('#thumb-' + i + ' img');
     if (thumb) thumb.src = '/static/slides/slide-' + pad + '.jpg?t=' + t;
   }
-  const pad = String(currentSlide).padStart(2, '0');
+  const pad = String(currentSlide).padStart(3, '0');
   slideImg.src = '/static/slides/slide-' + pad + '.jpg?t=' + t;
 }
 
@@ -3580,7 +3580,7 @@ async function applyCrop(rect) {
     hideLoading();
     const data = await resp.json();
     if (data.ok) {
-      const pad = String(currentSlide).padStart(2, '0');
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
       if (thumb) thumb.src = slideImg.src;
@@ -3608,7 +3608,7 @@ async function rotateSlide(angle) {
     hideLoading();
     const data = await resp.json();
     if (data.ok) {
-      const pad = String(currentSlide).padStart(2, '0');
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
       if (thumb) thumb.src = slideImg.src;
@@ -3648,7 +3648,7 @@ async function doFindReplace() {
       document.getElementById('fr-result').textContent = `Replaced ${data.replacements} occurrence(s)`;
       if (data.replacements > 0) {
         // Reload current slide
-        const pad = String(currentSlide).padStart(2, '0');
+        const pad = String(currentSlide).padStart(3, '0');
         slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
         showToast(`${data.replacements} replacement(s) made`, 'success');
       } else {
@@ -4071,7 +4071,7 @@ function printDeck() {
   if (!w) { showToast('Popup blocked — allow popups to print', 'error'); return; }
   const imgs = [];
   for (let i = 1; i <= total; i++) {
-    const n = String(i).padStart(2, '0');
+    const n = String(i).padStart(3, '0');
     imgs.push(`<div class="page"><img src="/static/slides/slide-${n}.jpg?t=${Date.now()}" /></div>`);
   }
   w.document.write(`<!doctype html><html><head><title>Print Deck</title>
