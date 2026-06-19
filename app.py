@@ -319,11 +319,6 @@ def _convert_pptx_to_images_libreoffice(pptx_path, output_dir=None):
             raise RuntimeError("PDF conversion produced no output")
 
         try:
-            from pdf2image import convert_from_path
-            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=200)):
-                img.convert("RGB").save(
-                    str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
-        except ImportError:
             import fitz
             doc = fitz.open(str(pdf_files[0]))
             mat = fitz.Matrix(2.0, 2.0)
@@ -331,6 +326,11 @@ def _convert_pptx_to_images_libreoffice(pptx_path, output_dir=None):
                 pix = page.get_pixmap(matrix=mat)
                 (dest / f"slide-{i+1:02d}.jpg").write_bytes(pix.tobytes("jpeg"))
             doc.close()
+        except ImportError:
+            from pdf2image import convert_from_path
+            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=200)):
+                img.convert("RGB").save(
+                    str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
