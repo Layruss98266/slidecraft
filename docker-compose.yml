@@ -1,3 +1,4 @@
+# LibreOffice is installed inside the image (see Dockerfile) — no separate install needed.
 services:
   slidecraft:
     build: .

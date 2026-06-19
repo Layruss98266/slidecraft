@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue?style=flat-square&logo=python&logoColor=white"/>
   <img src="https://img.shields.io/badge/flask-3.x-green?style=flat-square&logo=flask&logoColor=white"/>
   <img src="https://img.shields.io/badge/features-45+-purple?style=flat-square"/>
-  <img src="https://img.shields.io/badge/routes-62-orange?style=flat-square"/>
+  <img src="https://img.shields.io/badge/routes-61-orange?style=flat-square"/>
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square"/>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square"/>
 </p>
@@ -239,22 +239,22 @@ cd slidecraft
 # Run the launcher for your OS — it will:
 #   1. Create a Python virtual environment in .venv/
 #   2. Install everything listed in requirements.txt
-#   3. Warn you if LibreOffice isn't installed
+#   3. Auto-install LibreOffice if missing (required)
 #   4. Start the Flask server on http://127.0.0.1:5050
 ./run.sh              # macOS / Linux  (chmod +x run.sh once if needed)
 # or run.bat          # Windows — first-time setup + start
 # or .\run.ps1        # Windows (PowerShell)
 ```
 
-The launcher creates `.venv/`, installs `requirements.txt`, warns if LibreOffice isn't installed, then starts the server at http://127.0.0.1:5050. First run takes ~3 min (LibreOffice optional but strongly recommended for high-fidelity slide rendering).
+The launcher creates `.venv/`, installs `requirements.txt`, auto-installs LibreOffice if missing (required), then starts the server at http://127.0.0.1:5050. First run takes ~3–5 min (includes LibreOffice install if needed).
 
 ---
 
 ## How to Run
 
-### Option A — quick start (after first-time setup)
+### Option A — quick start
 
-Double-click **`start.bat`** (Windows) — activates the venv and starts the server instantly, no setup checks.
+Double-click **`start.bat`** (Windows) — uses the venv Python directly. If `.venv` is missing, it delegates to `run.bat` automatically for first-time setup.
 
 ```cmd
 :: Windows — fastest daily launcher
@@ -447,8 +447,8 @@ This installs all required packages:
 | `numpy` | Array operations | (with opencv) |
 | `torch` | AI backend for EasyOCR | ~200-800 MB |
 | `rembg` | Background removal from image overlays | ~170 MB |
-| `pdf2image` | Higher-fidelity PPTX→PDF→JPG conversion | ~5 MB |
-| `PyMuPDF` | Fallback PDF→JPG renderer | ~15 MB |
+| `PyMuPDF` | Primary PDF→JPG renderer (no external binary required) | ~15 MB |
+| `pdf2image` | Fallback PDF→JPG conversion (requires poppler) | ~5 MB |
 
 > **Note:** First install may take 2-5 minutes. The `torch` package is the largest (~200MB CPU-only).
 
@@ -504,11 +504,11 @@ That's it! SlideCraft is running.
 
 ---
 
-### Optional: Install LibreOffice (for better PPTX conversion)
+### LibreOffice (required)
 
-LibreOffice enables high-fidelity PPTX-to-image conversion. Without it, SlideCraft falls back to extracting embedded images.
+LibreOffice is required for PPTX-to-image conversion. The launchers auto-install it on first run. If you need to install manually:
 
-**Windows:** Download from [libreoffice.org](https://www.libreoffice.org/download/) and install.
+**Windows:** `winget install --id TheDocumentFoundation.LibreOffice` or download from [libreoffice.org](https://www.libreoffice.org/download/).
 
 **macOS:**
 ```bash
@@ -517,7 +517,9 @@ brew install --cask libreoffice
 
 **Linux:**
 ```bash
-sudo apt install libreoffice
+sudo apt install libreoffice        # Debian/Ubuntu
+sudo pacman -S libreoffice-fresh    # Arch
+sudo dnf install libreoffice        # Fedora
 ```
 
 ---
@@ -638,7 +640,7 @@ slidecraft/
 
 ---
 
-## API Reference (62 Routes)
+## API Reference (61 Routes)
 
 ### Slide Endpoints
 | Method | Endpoint | Description |
@@ -648,7 +650,6 @@ slidecraft/
 | `POST` | `/api/slide/<num>` | Save overlays + notes |
 | `POST` | `/api/slide/<num>/bake` | Burn overlays into slide image |
 | `POST` | `/api/slide/<num>/preview` | Render composite preview with overlays |
-| `POST` | `/api/slide/<num>/filter` | Apply image filter (single) |
 | `POST` | `/api/slide/<num>/filters` | Apply multiple image filters at once |
 | `POST` | `/api/slide/<num>/crop` | Crop slide image |
 | `POST` | `/api/slide/<num>/rotate` | Rotate slide image |
@@ -781,7 +782,7 @@ Uses **OpenCV's Telea inpainting algorithm**:
 | `UnicodeEncodeError` on Windows | Run with `set PYTHONIOENCODING=utf-8 && python app.py` |
 | Video processing slow | ~10-30 fps depending on resolution. 1080p 5min = ~5-8 min. |
 | Fonts don't match exactly | Use the Font Family dropdown in Properties. |
-| PPTX upload shows blank slides | Install LibreOffice for proper conversion. |
+| Server exits at startup with "LibreOffice not found" | Run the launcher (`run.bat` / `run.sh` / `run.ps1`) — it auto-installs LibreOffice. |
 | QR code shows placeholder | Install `qrcode` package: `pip install qrcode[pil]` |
 | Stop button not working | Wait a few seconds — cancellation is checked every frame. |
 
@@ -805,5 +806,5 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 <p align="center">
   Built with Flask + Pillow + OpenCV + EasyOCR + MoviePy<br>
-  <strong>62 API routes | 45+ features | 0 build steps</strong>
+  <strong>61 API routes | 45+ features | 0 build steps</strong>
 </p>

@@ -33,13 +33,21 @@ if errorlevel 1 (
 )
 
 :run
-REM Warn if LibreOffice isn't installed
+REM --- LibreOffice: required. Auto-install via winget if missing. ---
 if not exist "C:\Program Files\LibreOffice\program\soffice.exe" (
     where soffice >NUL 2>&1
     if errorlevel 1 (
-        echo !! WARNING: LibreOffice not found. PPTX conversion uses lossy fallback.
+        echo ^>^> LibreOffice not found — installing via winget (this may take a few minutes)...
+        winget install --id TheDocumentFoundation.LibreOffice --silent --accept-package-agreements --accept-source-agreements
+        if errorlevel 1 (
+            echo ERROR: Automatic install failed.
+            echo Please install manually from: https://www.libreoffice.org/download/download/
+            pause
+            exit /b 1
+        )
+        echo ^>^> LibreOffice installed successfully.
     )
 )
 
-python app.py
+.venv\Scripts\python.exe app.py
 endlocal

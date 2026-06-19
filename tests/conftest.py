@@ -89,7 +89,7 @@ def app_with_slides(app_client):
     """Pre-populated with 3 dummy slide JPGs."""
     client, app_module = app_client
     for i in range(1, 4):
-        name = f"slide-{i:02d}.jpg"
+        name = f"slide-{i:03d}.jpg"
         _make_dummy_jpg(app_module.SLIDES_DIR / name)
         _make_dummy_jpg(app_module.ORIGINALS_DIR / name)
     return client, app_module

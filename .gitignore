@@ -46,6 +46,13 @@ desktop.ini
 # Temp files
 *.tmp
 _temp_*
+nul
+
+# AgentMaster cache
+.agentmaster/
+
+# Runtime state
+current_deck.txt
 
 # Test files
 test_*.pptx

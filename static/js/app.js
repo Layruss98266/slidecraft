@@ -22,6 +22,7 @@ const NUM_SLIDES = window.NUM_SLIDES || 0;
 let currentSlide = 1;
 let overlays = [];
 let selectedIdx = -1;
+let selectedIdxSet = new Set();
 let currentTool = 'select';
 let isDragging = false;
 let isDrawing = false;
@@ -136,7 +137,11 @@ async function undo() {
       // Refresh per-slide overlay state from server (data.json was rewritten)
       gotoSlide(currentSlide);
       refreshAppliedBadge();
-      refreshServerUndoState();
+      await refreshServerUndoState();
+      // Reset filter sliders to neutral — server image has reverted
+      if (typeof _fxWrite === 'function' && typeof FX_DEFAULTS !== 'undefined') {
+        _fxWrite(FX_DEFAULTS); updateFxLive();
+      }
       showToast('Undid: ' + (data.text || data.kind || 'last action'), 'success');
     } else if (data.reason) {
       showToast(data.reason, 'info');
@@ -230,7 +235,7 @@ async function gotoSlide(n) {
   if (typeof clearFxPreviewOnNav === 'function') clearFxPreviewOnNav();
 
   currentSlide = n;
-  const pad = String(n).padStart(2, '0');
+  const pad = String(n).padStart(3, '0');
 
   slideImg.style.opacity = '0.5';
   slideImg.src = `/static/slides/slide-${pad}.jpg`;
@@ -252,6 +257,8 @@ async function gotoSlide(n) {
   overlays = data.overlays || [];
   document.getElementById('notes-text').value = data.notes || '';
   selectedIdx = -1;
+  selectedIdxSet.clear();
+  if (window.multiSel) window.multiSel.clear();
   dirty = false;
   undoStack = [];
   redoStack = [];
@@ -410,7 +417,7 @@ function onMouseDown(e) {
     const hit = hitTest(nx, ny);
     if (hit >= 0) {
       if (hit !== selectedIdx) pushUndo();
-      selectOverlay(hit);
+      selectOverlay(hit, e.shiftKey);
       isDragging = true;
       dragOffset = { x: nx - overlays[hit].x, y: ny - overlays[hit].y };
     } else {
@@ -771,7 +778,7 @@ async function createCoverFromOCR(region) {
     showToast('Inpaint failed (' + e.message + ') — overlay will sit on top of original text', 'error');
   }
   hideLoading();
-  const pad2 = String(currentSlide).padStart(2, '0');
+  const pad2 = String(currentSlide).padStart(3, '0');
   const newSrc = `/static/slides/slide-${pad2}.jpg?t=${Date.now()}`;
   slideImg.src = newSrc;
   const thumb = document.querySelector(`#thumb-${currentSlide} img`);
@@ -954,7 +961,7 @@ async function handleImageUpload(input) {
       if (selectedIdx >= 0 && overlays[selectedIdx]?.type === 'image') {
         pushUndo();
         overlays[selectedIdx].src = data.src;
-        delete imageCache[selectedIdx];
+        delete imageCache[data.src];
         preloadSingleImage(selectedIdx);
       } else {
         pushUndo();
@@ -993,7 +1000,7 @@ async function removeBgFromSelected() {
     if (data.error) { showToast(data.error, 'error'); return; }
     pushUndo();
     ov.src = data.src;
-    delete imageCache[selectedIdx];
+    delete imageCache[data.src];
     preloadSingleImage(selectedIdx);
     renderOverlays();
     markDirty();
@@ -1013,14 +1020,27 @@ function preloadSingleImage(idx) {
   const ov = overlays[idx];
   if (!ov || ov.type !== 'image' || !ov.src) return;
   const img = new Image();
-  img.onload = () => { imageCache[idx] = img; renderOverlays(); };
+  img.onload = () => { imageCache[ov.src] = img; renderOverlays(); };
   img.src = ov.src;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
 // SELECTION
 // ══════════════════════════════════════════════════════════════════════════
-function selectOverlay(idx) {
+function selectOverlay(idx, addToSelection) {
+  if (addToSelection && selectedIdx >= 0) {
+    selectedIdxSet.add(selectedIdx);
+    selectedIdxSet.add(idx);
+    if (window.multiSel) { window.multiSel.add(selectedIdx); window.multiSel.add(idx); }
+    selectedIdx = idx;
+    document.querySelectorAll('.ov-item').forEach((el,i) =>
+      el.classList.toggle('selected', selectedIdxSet.has(i) || i === idx));
+    showPropsForm(overlays[idx]);
+    renderOverlays();
+    return;
+  }
+  selectedIdxSet.clear();
+  if (window.multiSel) window.multiSel.clear();
   selectedIdx = idx;
   document.querySelectorAll('.ov-item').forEach((el,i) => el.classList.toggle('selected', i===idx));
   showPropsForm(overlays[idx]);
@@ -1029,6 +1049,8 @@ function selectOverlay(idx) {
 
 function deselectOverlay() {
   selectedIdx = -1;
+  selectedIdxSet.clear();
+  if (window.multiSel) window.multiSel.clear();
   document.querySelectorAll('.ov-item').forEach(el => el.classList.remove('selected'));
   hidePropsForm();
   renderOverlays();
@@ -1038,8 +1060,15 @@ function deleteSelected() {
   hideContextMenu();
   if (selectedIdx < 0) return;
   pushUndo();
-  overlays.splice(selectedIdx, 1);
-  selectedIdx = -1;
+  if (selectedIdxSet.size > 1) {
+    const toDelete = new Set(selectedIdxSet);
+    overlays = overlays.filter((_, i) => !toDelete.has(i));
+    selectedIdxSet.clear();
+    selectedIdx = -1;
+  } else {
+    overlays.splice(selectedIdx, 1);
+    selectedIdx = -1;
+  }
   renderOverlayList(); renderOverlays(); hidePropsForm(); markDirty();
 }
 
@@ -1210,7 +1239,7 @@ function renderOverlays() {
       ctx.fillStyle = ov.fillColor || '#2563EB';
       ctx.fillRect(x, y, w, h);
     } else if (ov.type === 'image') {
-      const cached = imageCache[i];
+      const cached = imageCache[ov.src];
       if (cached) {
         ctx.drawImage(cached, x, y, w, h);
       } else {
@@ -1636,7 +1665,7 @@ async function bakeOverlays() {
       // Reload the slide image (cache bust) and clear overlays
       overlays = [];
       selectedIdx = -1;
-      const pad = String(currentSlide).padStart(2, '0');
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       // Also update thumbnail
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
@@ -1853,6 +1882,7 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveCurrentSlide(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'A') { e.preventDefault(); bakeOverlays(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !inInput) { e.preventDefault(); copyOverlay(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !inInput) { e.preventDefault(); pasteOverlay(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'd' && !inInput) {
@@ -1885,8 +1915,6 @@ document.addEventListener('keydown', e => {
 document.getElementById('shortcuts-modal').addEventListener('click', function(e) {
   if (e.target === this) this.classList.remove('show');
 });
-
-window.addEventListener('resize', () => { resizeCanvas(); renderOverlays(); });
 
 // ══════════════════════════════════════════════════════════════════════════
 // COPY / PASTE
@@ -1936,7 +1964,7 @@ function presNavigate(dir) {
 }
 
 async function renderPresSlide() {
-  const pad = String(presSlide).padStart(2, '0');
+  const pad = String(presSlide).padStart(3, '0');
   const presCanvas = document.getElementById('pres-canvas');
   const pCtx = presCanvas.getContext('2d');
 
@@ -2737,7 +2765,7 @@ async function resetFxToOriginal() {
     const data = await resp.json();
     if (data.ok) {
       resetFxSliders();
-      const pad = String(currentSlide).padStart(2, '0');
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
       if (thumb) thumb.src = slideImg.src;
@@ -2781,11 +2809,11 @@ async function applyFiltersNow() {
       // Clear the CSS preview; the new JPG already has the filters baked
       slideImg.style.filter = '';
       const t = Date.now();
-      const pad = String(currentSlide).padStart(2, '0');
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${t}`;
       // Reload all thumbnails too (in case scope=all)
       for (let i = 1; i <= NUM_SLIDES; i++) {
-        const tp = String(i).padStart(2, '0');
+        const tp = String(i).padStart(3, '0');
         const tn = document.querySelector(`#thumb-${i} img`);
         if (tn) tn.src = `/static/slides/slide-${tp}.jpg?t=${t}`;
       }
@@ -2890,7 +2918,7 @@ function switchWmTab(tab) {
   } else if (tab === 'detect') {
     document.getElementById('wm-detect-num').textContent = currentSlide;
     const detectImg = document.getElementById('wm-detect-img');
-    const pad = String(currentSlide).padStart(2, '0');
+    const pad = String(currentSlide).padStart(3, '0');
     detectImg.src = '/static/slides/slide-' + pad + '.jpg?t=' + Date.now();
     detectWatermarks();
   } else if (tab === 'applied') {
@@ -2975,7 +3003,7 @@ function renderImagePreview() {
   const wmImgEl = document.getElementById('wm-image-preview');
   const baseImg = new Image();
   const previewImg = document.getElementById('wm-preview-img');
-  const pad = String(currentSlide).padStart(2, '0');
+  const pad = String(currentSlide).padStart(3, '0');
   baseImg.crossOrigin = 'anonymous';
   baseImg.onload = () => {
     const canvas = document.createElement('canvas');
@@ -3045,11 +3073,11 @@ async function renderTextPreview() {
 function reloadAllSlides() {
   const t = Date.now();
   for (let i = 1; i <= NUM_SLIDES; i++) {
-    const pad = String(i).padStart(2, '0');
+    const pad = String(i).padStart(3, '0');
     const thumb = document.querySelector('#thumb-' + i + ' img');
     if (thumb) thumb.src = '/static/slides/slide-' + pad + '.jpg?t=' + t;
   }
-  const pad = String(currentSlide).padStart(2, '0');
+  const pad = String(currentSlide).padStart(3, '0');
   slideImg.src = '/static/slides/slide-' + pad + '.jpg?t=' + t;
 }
 
@@ -3551,8 +3579,8 @@ async function applyCrop(rect) {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
-      const pad = String(currentSlide).padStart(2, '0');
+    if (data.ok) {
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
       if (thumb) thumb.src = slideImg.src;
@@ -3579,8 +3607,8 @@ async function rotateSlide(angle) {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
-      const pad = String(currentSlide).padStart(2, '0');
+    if (data.ok) {
+      const pad = String(currentSlide).padStart(3, '0');
       slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
       const thumb = document.querySelector(`#thumb-${currentSlide} img`);
       if (thumb) thumb.src = slideImg.src;
@@ -3620,7 +3648,7 @@ async function doFindReplace() {
       document.getElementById('fr-result').textContent = `Replaced ${data.replacements} occurrence(s)`;
       if (data.replacements > 0) {
         // Reload current slide
-        const pad = String(currentSlide).padStart(2, '0');
+        const pad = String(currentSlide).padStart(3, '0');
         slideImg.src = `/static/slides/slide-${pad}.jpg?t=${Date.now()}`;
         showToast(`${data.replacements} replacement(s) made`, 'success');
       } else {
@@ -3697,7 +3725,7 @@ async function restoreVersion(version) {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       document.getElementById('history-modal').classList.remove('show');
       showToast('Version restored! Reloading...', 'success');
       setTimeout(() => location.reload(), 800);
@@ -3760,7 +3788,7 @@ async function saveTemplate() {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       showToast(`Template "${name}" saved!`, 'success');
       document.getElementById('tpl-name').value = '';
       loadTemplates();
@@ -3784,7 +3812,7 @@ async function loadTemplate(name) {
     });
     hideLoading();
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       document.getElementById('templates-modal').classList.remove('show');
       showToast('Template loaded! Reloading...', 'success');
       setTimeout(() => location.reload(), 800);
@@ -3806,7 +3834,7 @@ async function deleteTemplate(name) {
       body: JSON.stringify({ name })
     });
     const data = await resp.json();
-    if (data.ok || resp.ok) {
+    if (data.ok) {
       showToast('Template deleted', 'success');
       loadTemplates();
     } else {
@@ -3935,7 +3963,8 @@ document.addEventListener('keydown', e => {
     document.getElementById('help-modal').classList.remove('show');
     cancelComment();
   }
-  if (e.key === 'h' || e.key === 'H') openHelpModal();
+  const inInput2 = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
+  if ((e.key === 'h' || e.key === 'H') && !inInput2) openHelpModal();
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -4042,7 +4071,7 @@ function printDeck() {
   if (!w) { showToast('Popup blocked — allow popups to print', 'error'); return; }
   const imgs = [];
   for (let i = 1; i <= total; i++) {
-    const n = String(i).padStart(2, '0');
+    const n = String(i).padStart(3, '0');
     imgs.push(`<div class="page"><img src="/static/slides/slide-${n}.jpg?t=${Date.now()}" /></div>`);
   }
   w.document.write(`<!doctype html><html><head><title>Print Deck</title>

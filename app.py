@@ -4,7 +4,7 @@ Edits NotebookLM image-based slides with text/shape overlays,
 then exports a new editable PPTX.
 """
 
-import os, sys, json, base64, subprocess, shutil, uuid, datetime, re
+import os, sys, json, base64, subprocess, shutil, uuid, datetime, re, atexit
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, send_file, make_response
 from pptx import Presentation
@@ -94,6 +94,15 @@ ORIGINALS_DIR.mkdir(parents=True, exist_ok=True)
 # Max age (seconds) for files in EXPORT_DIR. Older files purged on next export.
 EXPORT_TTL_SECONDS = int(os.environ.get('EXPORT_TTL_SECONDS', 24 * 3600))
 
+def _check_disk_space(path, required_mb=200):
+    """Return True if path's partition has at least required_mb free."""
+    try:
+        free = shutil.disk_usage(path).free
+        return free >= required_mb * 1024 * 1024
+    except OSError:
+        return True  # can't check — allow through
+
+
 def _cleanup_old_exports():
     """Best-effort cleanup of EXPORT_DIR files older than EXPORT_TTL_SECONDS."""
     import time as _t
@@ -108,7 +117,7 @@ def _cleanup_old_exports():
     except OSError:
         pass
 
-SLIDE_W_PX, SLIDE_H_PX = 2134, 1200   # actual JPG pixel dimensions
+SLIDE_W_PX, SLIDE_H_PX = 3200, 1800   # slide render dimensions (Matrix 2.5 × 96 dpi)
 
 # Lock for file-based persistence (slide_data.json, comments.json)
 # RLock (reentrant) so nested critical sections — e.g. ops_undo holds the lock
@@ -245,7 +254,7 @@ def remove_logos_batch(slide_files):
     for p in slide_files:
         img = Image.open(p).convert("RGB")
         img = _erase_logo(img)
-        img.save(str(p), quality=95)
+        img.save(str(p), quality=97)
 
 
 def process_uploaded_pptx(pptx_path):
@@ -255,10 +264,7 @@ def process_uploaded_pptx(pptx_path):
     SLIDES_DIR.mkdir(parents=True, exist_ok=True)
     stage_dir = Path(tempfile.mkdtemp(prefix="slides_stage_"))
     try:
-        try:
-            _convert_pptx_to_images_libreoffice(pptx_path, stage_dir)
-        except (RuntimeError, FileNotFoundError, subprocess.SubprocessError, OSError):
-            _convert_pptx_to_images_pillow(pptx_path, stage_dir)
+        _convert_pptx_to_images_libreoffice(pptx_path, stage_dir)
 
         staged = sorted(stage_dir.glob("slide-*.jpg"))
         if not staged:
@@ -315,46 +321,28 @@ def _convert_pptx_to_images_libreoffice(pptx_path, output_dir=None):
         subprocess.run(
             [lo_cmd, "--headless", "--convert-to", "pdf",
              "--outdir", str(tmp_dir), str(pptx_path)],
-            check=True, timeout=120,
+            check=True, timeout=45,
         )
         pdf_files = list(tmp_dir.glob("*.pdf"))
         if not pdf_files:
             raise RuntimeError("PDF conversion produced no output")
 
         try:
-            from pdf2image import convert_from_path
-            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=200)):
-                img.convert("RGB").save(
-                    str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
-        except ImportError:
             import fitz
             doc = fitz.open(str(pdf_files[0]))
-            mat = fitz.Matrix(2.0, 2.0)
+            mat = fitz.Matrix(2.5, 2.5)  # 2.5× scale ≈ 240 DPI — sharper text/edges
             for i, page in enumerate(doc):
-                pix = page.get_pixmap(matrix=mat)
-                (dest / f"slide-{i+1:02d}.jpg").write_bytes(pix.tobytes("jpeg"))
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                (dest / f"slide-{i+1:03d}.jpg").write_bytes(
+                    pix.tobytes("jpeg", jpg_quality=97))
             doc.close()
+        except ImportError:
+            from pdf2image import convert_from_path
+            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=300)):
+                img.convert("RGB").save(
+                    str(dest / f"slide-{i+1:03d}.jpg"), "JPEG", quality=97)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-def _convert_pptx_to_images_pillow(pptx_path, output_dir=None):
-    """Fallback: extract embedded pictures from PPTX shapes (limited fidelity)."""
-    dest = output_dir or SLIDES_DIR
-    prs = Presentation(str(pptx_path))
-    sw_emu, sh_emu = prs.slide_width, prs.slide_height
-
-    for i, slide in enumerate(prs.slides):
-        img = Image.new("RGB", (SLIDE_W_PX, SLIDE_H_PX), (255, 255, 255))
-        for shape in slide.shapes:
-            if shape.shape_type == 13:  # Picture
-                shape_img = Image.open(io.BytesIO(shape.image.blob))
-                left = int(shape.left / sw_emu * SLIDE_W_PX) if sw_emu else 0
-                top  = int(shape.top  / sh_emu * SLIDE_H_PX) if sh_emu else 0
-                sw   = int(shape.width  / sw_emu * SLIDE_W_PX) if sw_emu else SLIDE_W_PX
-                sh   = int(shape.height / sh_emu * SLIDE_H_PX) if sh_emu else SLIDE_H_PX
-                img.paste(shape_img.resize((sw, sh), Image.BILINEAR), (left, top))
-        img.save(str(dest / f"slide-{i+1:02d}.jpg"), "JPEG", quality=95)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -389,7 +377,12 @@ def upload_pptx():
     try:
         process_uploaded_pptx(save_path)
     except Exception as e:
-        return jsonify({"error": f"Processing failed: {e}"}), 500
+        print(f"[upload] processing error: {e}", file=sys.stderr)
+        try:
+            save_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return jsonify({"error": "Processing failed — check the file is a valid PPTX and try again."}), 500
 
     _set_deck_name(f.filename)
     return jsonify({"ok": True, "num_slides": len(_get_slide_files()),
@@ -440,7 +433,7 @@ def inpaint_region(num):
     slide_files = _get_slide_files()
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     try:
         rx = float(payload.get("x", 0))
         ry = float(payload.get("y", 0))
@@ -478,7 +471,7 @@ def save_slide(num):
     num_slides = len(_get_slide_files())
     if num < 1 or num > max(num_slides, 1):
         return jsonify({"error": "Invalid slide number"}), 400
-    payload = request.json
+    payload = request.get_json(force=True, silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid payload"}), 400
     # Validate expected keys
@@ -500,6 +493,8 @@ def save_slide(num):
 @app.route("/api/export", methods=["POST"])
 def export_pptx():
     """Rebuild PPTX: slide image as background + text overlays as real text boxes."""
+    if not _check_disk_space(EXPORT_DIR):
+        return jsonify({"error": "Not enough disk space to export. Free up space and try again."}), 507
     _cleanup_old_exports()
     data = load_data()
     prs  = Presentation()
@@ -548,7 +543,9 @@ def preview_slide(num):
         return jsonify({"error": "Invalid slide"}), 400
 
     data   = load_data()
-    payload = request.json
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
+    if not isinstance(payload.get("overlays", []), list):
+        return jsonify({"error": "Invalid overlay data"}), 400
     data[str(num)] = payload
     save_data(data)
 
@@ -1091,14 +1088,17 @@ def sample_color(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide number"}), 400
 
-    payload = request.json
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     img = Image.open(slide_files[num - 1]).convert("RGB")
     w, h = img.size
 
-    x1 = int(payload["x"] * w)
-    y1 = int(payload["y"] * h)
-    x2 = int((payload["x"] + payload["w"]) * w)
-    y2 = int((payload["y"] + payload["h"]) * h)
+    try:
+        x1 = int(payload.get("x", 0.5) * w)
+        y1 = int(payload.get("y", 0.5) * h)
+        x2 = int((payload.get("x", 0.5) + payload.get("w", 0.1)) * w)
+        y2 = int((payload.get("y", 0.5) + payload.get("h", 0.1)) * h)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return jsonify({"error": "Invalid coordinates"}), 400
     x1, y1 = max(0, x1), max(0, y1)
     x2, y2 = min(w, x2), min(h, y2)
 
@@ -1230,7 +1230,7 @@ def upload_image():
 @app.route("/api/logo/add-overlay", methods=["POST"])
 def add_logo_overlay():
     """Add a logo as a draggable image overlay to one or all slides."""
-    payload = request.json or {}
+    payload = request.get_json(force=True, silent=True) or {}
     src = payload.get("src")
     if not src:
         return jsonify({"error": "No src provided"}), 400
@@ -1267,7 +1267,7 @@ def remove_background():
     """Strip background from a base64 image overlay using rembg."""
     if not HAS_REMBG:
         return jsonify({"error": "rembg not installed — run: pip install rembg"}), 501
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     src = payload.get("src", "")
     if not src.startswith("data:image/"):
         return jsonify({"error": "Invalid image data"}), 400
@@ -1288,7 +1288,7 @@ def remove_background():
 @app.route("/api/reorder", methods=["POST"])
 def reorder_slides():
     """Reorder slide files on disk. Expects {"order": [3,1,2,...]}."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     new_order = payload.get("order", [])
     slide_files = _get_slide_files()
 
@@ -1304,10 +1304,10 @@ def reorder_slides():
 
         # Copy to temp with new names
         for new_idx, old_idx in enumerate(new_order, 1):
-            src = SLIDES_DIR / f"slide-{old_idx:02d}.jpg"
-            dst = tmp_dir / f"slide-{new_idx:02d}.jpg"
+            src = SLIDES_DIR / f"slide-{old_idx:03d}.jpg"
+            dst = tmp_dir / f"slide-{new_idx:03d}.jpg"
             if not src.exists():
-                raise RuntimeError(f"Missing slide-{old_idx:02d}.jpg")
+                raise RuntimeError(f"Missing slide-{old_idx:03d}.jpg")
             shutil.copy2(str(src), str(dst))
 
         # All copies succeeded — swap
@@ -1368,7 +1368,6 @@ def manual_save_checkpoint():
 def delete_slide(num):
     """Delete a single slide, renumbering subsequent slides and rekeying
     overlay data + comments to stay aligned."""
-    import copy as _copy
     slide_files = _get_slide_files()
     total = len(slide_files)
     if num < 1 or num > total:
@@ -1378,13 +1377,13 @@ def delete_slide(num):
 
     snapshot = _snapshot_before_destructive("delete")
     try:
-        target = SLIDES_DIR / f"slide-{num:02d}.jpg"
+        target = SLIDES_DIR / f"slide-{num:03d}.jpg"
         if target.exists():
             target.unlink()
         # Shift subsequent files down by one
         for i in range(num + 1, total + 1):
-            src = SLIDES_DIR / f"slide-{i:02d}.jpg"
-            dst = SLIDES_DIR / f"slide-{i-1:02d}.jpg"
+            src = SLIDES_DIR / f"slide-{i:03d}.jpg"
+            dst = SLIDES_DIR / f"slide-{i-1:03d}.jpg"
             if src.exists():
                 shutil.move(str(src), str(dst))
 
@@ -1449,13 +1448,13 @@ def duplicate_slide(num):
     try:
         # Shift slides num+1..total up by one
         for i in range(total, num, -1):
-            src = SLIDES_DIR / f"slide-{i:02d}.jpg"
-            dst = SLIDES_DIR / f"slide-{i+1:02d}.jpg"
+            src = SLIDES_DIR / f"slide-{i:03d}.jpg"
+            dst = SLIDES_DIR / f"slide-{i+1:03d}.jpg"
             if src.exists():
                 shutil.move(str(src), str(dst))
         # Copy the target file to num+1
-        src = SLIDES_DIR / f"slide-{num:02d}.jpg"
-        dst = SLIDES_DIR / f"slide-{num+1:02d}.jpg"
+        src = SLIDES_DIR / f"slide-{num:03d}.jpg"
+        dst = SLIDES_DIR / f"slide-{num+1:03d}.jpg"
         shutil.copy2(str(src), str(dst))
 
         # Rekey slide_data.json
@@ -1514,7 +1513,7 @@ def download_slide_png(num):
     slide_files = _get_slide_files()
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
-    src = SLIDES_DIR / f"slide-{num:02d}.jpg"
+    src = SLIDES_DIR / f"slide-{num:03d}.jpg"
     if not src.exists():
         return jsonify({"error": "Slide not found"}), 404
     buf = io.BytesIO()
@@ -1523,7 +1522,7 @@ def download_slide_png(num):
     deck = _get_deck_name() or "slide"
     base = re.sub(r"[^A-Za-z0-9_\-]", "_", Path(deck).stem)[:60] or "slide"
     return send_file(buf, mimetype="image/png", as_attachment=True,
-                     download_name=f"{base}-slide-{num:02d}.png")
+                     download_name=f"{base}-slide-{num:03d}.png")
 
 
 # ── PDF export route ────────────────────────────────────────────────────────
@@ -1531,6 +1530,8 @@ def download_slide_png(num):
 @app.route("/api/export-pdf", methods=["POST"])
 def export_pdf():
     """Export slides as a multi-page PDF."""
+    if not _check_disk_space(EXPORT_DIR):
+        return jsonify({"error": "Not enough disk space to export. Free up space and try again."}), 507
     _cleanup_old_exports()
     slide_files = _get_slide_files()
     if not slide_files:
@@ -1540,7 +1541,7 @@ def export_pdf():
     rest = (Image.open(sf).convert("RGB") for sf in slide_files[1:])
 
     out_path = EXPORT_DIR / f"Slides_Export_{uuid.uuid4().hex[:8]}.pdf"
-    first_img.save(str(out_path), save_all=True, append_images=rest, resolution=150)
+    first_img.save(str(out_path), save_all=True, append_images=rest, resolution=300, quality=97)
 
     return send_file(str(out_path), as_attachment=True, download_name="Slides_Export.pdf")
 
@@ -1615,6 +1616,8 @@ def _add_overlay(slide, ov, slide_w, slide_h):
 @app.route("/api/export-png-zip", methods=["POST"])
 def export_png_zip():
     """Export all slides as a ZIP of PNG images."""
+    if not _check_disk_space(EXPORT_DIR):
+        return jsonify({"error": "Not enough disk space to export. Free up space and try again."}), 507
     _cleanup_old_exports()
     import zipfile
     slide_files = _get_slide_files()
@@ -1639,7 +1642,7 @@ def export_png_zip():
 def export_gif():
     """Export slides as an animated GIF slideshow."""
     _cleanup_old_exports()
-    payload = request.json or {}
+    payload = request.get_json(force=True, silent=True) or {}
     duration_ms = int(payload.get("duration", 2000))  # ms per slide
 
     slide_files = _get_slide_files()
@@ -1649,7 +1652,7 @@ def export_gif():
     frames = []
     for sf in slide_files:
         img = Image.open(sf).convert("RGB")
-        img = img.resize((800, 450), Image.BILINEAR)
+        img = img.resize((1280, 720), Image.LANCZOS)
         frames.append(img)
 
     gif_path = EXPORT_DIR / f"slides_export_{uuid.uuid4().hex[:8]}.gif"
@@ -1660,55 +1663,6 @@ def export_gif():
 
 
 # ── Image Filters ───────────────────────────────────────────────────────────
-
-@app.route("/api/slide/<int:num>/filter", methods=["POST"])
-def apply_filter(num):
-    """Apply image filter to a slide. Filters: brightness, contrast, blur, grayscale, sepia."""
-    from PIL import ImageEnhance, ImageFilter as PilFilter
-
-    slide_files = _get_slide_files()
-    if num < 1 or num > len(slide_files):
-        return jsonify({"error": "Invalid slide"}), 400
-
-    payload = _ensure_dict(request.json)
-    filter_type = payload.get("filter", "")
-    try:
-        value = float(payload.get("value", 1.0))
-    except (TypeError, ValueError):
-        return jsonify({"error": "value must be numeric"}), 400
-
-    img = Image.open(slide_files[num - 1]).convert("RGB")
-
-    if filter_type == "brightness":
-        img = ImageEnhance.Brightness(img).enhance(value)
-    elif filter_type == "contrast":
-        img = ImageEnhance.Contrast(img).enhance(value)
-    elif filter_type == "saturation":
-        img = ImageEnhance.Color(img).enhance(value)
-    elif filter_type == "blur":
-        img = img.filter(PilFilter.GaussianBlur(radius=value))
-    elif filter_type == "sharpen":
-        img = ImageEnhance.Sharpness(img).enhance(value)
-    elif filter_type == "grayscale":
-        import cv2, numpy as np
-        arr = np.array(img)
-        gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-        img = Image.fromarray(cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB))
-    elif filter_type == "sepia":
-        import numpy as np
-        arr = np.array(img, dtype=np.float64)
-        sepia_filter = np.array([[0.393, 0.769, 0.189],
-                                  [0.349, 0.686, 0.168],
-                                  [0.272, 0.534, 0.131]])
-        sepia = arr @ sepia_filter.T
-        sepia = np.clip(sepia, 0, 255).astype(np.uint8)
-        img = Image.fromarray(sepia)
-    else:
-        return jsonify({"error": f"Unknown filter: {filter_type}"}), 400
-
-    img.save(str(slide_files[num - 1]), quality=95)
-    return jsonify({"ok": True})
-
 
 # ── Multi-filter pipeline ───────────────────────────────────────────────────
 
@@ -1807,7 +1761,7 @@ def apply_filters_chain(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     scope = str(payload.get("scope", "current"))
     from_original = bool(payload.get("from_original", True))
 
@@ -1858,7 +1812,7 @@ def crop_slide(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     snapshot = _snapshot_before_destructive("crop")
     img = Image.open(slide_files[num - 1]).convert("RGB")
     w, h = img.size
@@ -1882,7 +1836,7 @@ def rotate_slide(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     try:
         angle = int(payload.get("angle", 90))
     except (TypeError, ValueError):
@@ -1902,7 +1856,7 @@ def rotate_slide(num):
 @app.route("/api/qr-generate", methods=["POST"])
 def generate_qr():
     """Generate a QR code as base64 PNG. Requires 'url' in payload."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     url = str(payload.get("url", ""))[:2000]
     if not url:
         return jsonify({"error": "No URL provided"}), 400
@@ -2054,7 +2008,7 @@ def _restore_from_snapshot(version_dir: Path, *, scope: str, slide_num=None):
             n = int(slide_num)
         except (TypeError, ValueError):
             raise RuntimeError(f"Invalid slide_num: {slide_num!r}")
-        name = f"slide-{n:02d}.jpg"
+        name = f"slide-{n:03d}.jpg"
         src = version_dir / name
         dst = SLIDES_DIR / name
         if not src.exists():
@@ -2145,7 +2099,7 @@ def add_watermark():
         color (#rrggbb), font_scale (0.02–0.2), rotation (-90..90 deg),
         tile_spacing (0.5..3.0), scope ("all"|"current"), slide_num (1-based if current).
     """
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     text = str(payload.get("text", "CONFIDENTIAL"))[:200]
     if not text.strip():
         return jsonify({"error": "Text cannot be empty"}), 400
@@ -2233,7 +2187,7 @@ def preview_watermark(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     text = str(payload.get("text", "CONFIDENTIAL"))[:200]
     try:
         opacity = max(0.02, min(1.0, float(payload.get("opacity", 0.15))))
@@ -2268,7 +2222,7 @@ def preview_watermark(num):
     )
     composed = Image.alpha_composite(small, layer).convert("RGB")
     buf = io.BytesIO()
-    composed.save(buf, format="JPEG", quality=80)
+    composed.save(buf, format="JPEG", quality=92)
     buf.seek(0)
     b64 = base64.b64encode(buf.read()).decode()
     return jsonify({"preview": f"data:image/jpeg;base64,{b64}"})
@@ -2376,13 +2330,15 @@ def remove_watermark(num):
     if num < 1 or num > len(slide_files):
         return jsonify({"error": "Invalid slide"}), 400
 
-    payload = request.json
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     regions = payload.get("regions", [])
     if not regions:
         return jsonify({"error": "No regions specified"}), 400
 
     snapshot = _snapshot_before_destructive("watermark-remove")
     img = cv2.imread(str(slide_files[num - 1]))
+    if img is None:
+        return jsonify({"error": "Could not read slide image"}), 500
     h, w = img.shape[:2]
 
     mask = np.zeros((h, w), dtype=np.uint8)
@@ -2405,7 +2361,7 @@ def remove_watermark_all():
     import cv2
     import numpy as np
 
-    payload = request.json
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     regions = payload.get("regions", [])
     if not regions:
         return jsonify({"error": "No regions specified"}), 400
@@ -2415,6 +2371,8 @@ def remove_watermark_all():
     count = 0
     for sf in slide_files:
         img = cv2.imread(str(sf))
+        if img is None:
+            continue
         h, w = img.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
         for r in regions:
@@ -2727,7 +2685,7 @@ def revert_watermark(entry_id):
 
     if is_current_scope:
         n = int(target["slide_num"])
-        name = f"slide-{n:02d}.jpg"
+        name = f"slide-{n:03d}.jpg"
         src = version_dir / name
         dst = SLIDES_DIR / name
         if not src.exists():
@@ -2934,10 +2892,7 @@ def batch_remove_logo():
                 file_slides_dir.mkdir(exist_ok=True)
 
                 # Convert PPTX to images (reuse shared conversion functions)
-                try:
-                    _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
-                except (RuntimeError, FileNotFoundError, subprocess.SubprocessError, OSError):
-                    _convert_pptx_to_images_pillow(input_path, file_slides_dir)
+                _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
 
                 # Remove logos from all slide images
                 slide_images = sorted(file_slides_dir.glob("slide-*.jpg"))
@@ -2986,7 +2941,7 @@ def folder_remove_logo():
     import tempfile
     from flask import Response, stream_with_context
 
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     raw = payload.get("folder", "")
     if not isinstance(raw, str) or not raw.strip():
         return jsonify({"error": "Missing 'folder' path"}), 400
@@ -3042,11 +2997,7 @@ def folder_remove_logo():
             try:
                 file_slides_dir = tmp_dir / "slides"
                 file_slides_dir.mkdir()
-                try:
-                    _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
-                except (RuntimeError, FileNotFoundError,
-                        subprocess.SubprocessError, OSError):
-                    _convert_pptx_to_images_pillow(input_path, file_slides_dir)
+                _convert_pptx_to_images_libreoffice(input_path, file_slides_dir)
 
                 slide_images = sorted(file_slides_dir.glob("slide-*.jpg"))
                 if not slide_images:
@@ -3116,7 +3067,7 @@ def list_templates():
 @app.route("/api/templates/save", methods=["POST"])
 def save_template():
     """Save current slides + overlays as a named template."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     name = _safe_name(payload.get("name", "untitled"))
     if not name:
         return jsonify({"error": "Invalid template name (use letters, numbers, _, -, space; max 64)"}), 400
@@ -3141,7 +3092,7 @@ def save_template():
 @app.route("/api/templates/load", methods=["POST"])
 def load_template():
     """Load a template — restore slide images + overlays."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     name = _safe_name(payload.get("name", ""))
     if not name:
         return jsonify({"error": "Invalid template name"}), 400
@@ -3176,7 +3127,7 @@ def load_template():
 @app.route("/api/templates/delete", methods=["POST"])
 def delete_template():
     """Delete a saved template."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     name = _safe_name(payload.get("name", ""))
     if not name:
         return jsonify({"error": "Invalid template name"}), 400
@@ -3227,7 +3178,7 @@ def list_versions():
 @app.route("/api/history/restore", methods=["POST"])
 def restore_version():
     """Restore a previous version."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     raw = payload.get("version", "") or payload.get("name", "")
     # Version names are timestamps + hex, so allow that pattern strictly.
     if not isinstance(raw, str) or not re.match(r"^[A-Za-z0-9_\-]{1,64}$", raw):
@@ -3280,7 +3231,7 @@ def get_comments(num):
 
 @app.route("/api/comments/<int:num>", methods=["POST"])
 def add_comment(num):
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     comment = {
         "text": str(payload.get("text", ""))[:5000],
         "x": float(payload.get("x", 0.5)) if isinstance(payload.get("x", 0.5), (int, float)) else 0.5,
@@ -3298,7 +3249,7 @@ def add_comment(num):
 
 @app.route("/api/comments/<int:num>/resolve", methods=["POST"])
 def resolve_comment(num):
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     try:
         idx = int(payload.get("index", 0))
     except (TypeError, ValueError):
@@ -3314,7 +3265,7 @@ def resolve_comment(num):
 
 @app.route("/api/comments/<int:num>/delete", methods=["POST"])
 def delete_comment(num):
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     try:
         idx = int(payload.get("index", 0))
     except (TypeError, ValueError):
@@ -3333,7 +3284,7 @@ def delete_comment(num):
 @app.route("/api/find-replace", methods=["POST"])
 def find_replace():
     """Find and replace text in overlays across all slides."""
-    payload = _ensure_dict(request.json)
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     find_text = str(payload.get("find", ""))
     replace_text = str(payload.get("replace", ""))
     if not find_text:
@@ -3384,7 +3335,7 @@ def upload_video():
 @app.route("/api/video/preview-frame", methods=["POST"])
 def video_preview_frame():
     """Get a frame from the video + detect logo region."""
-    payload = request.json
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     fname = payload.get("filename", "")
     video_path = VIDEO_DIR / secure_filename(fname)
     if not video_path.exists():
@@ -3435,7 +3386,7 @@ def _cleanup_video_jobs():
 @app.route("/api/video/remove-logo", methods=["POST"])
 def remove_video_logo():
     """Start logo removal job in a background thread, return job_id for polling."""
-    payload = request.json
+    payload = _ensure_dict(request.get_json(force=True, silent=True))
     fname = payload.get("filename", "")
     lx = float(payload.get("x", 0.85))
     ly = float(payload.get("y", 0.93))
@@ -3560,9 +3511,15 @@ def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
             original.close()
             clean.close()
             temp_path.unlink(missing_ok=True)
-        except Exception:
+        except ImportError:
             if temp_path.exists():
                 shutil.move(str(temp_path), str(out_path))
+            job["warning"] = "moviepy not installed — audio track not restored"
+        except Exception as _mux_err:
+            if temp_path.exists():
+                shutil.move(str(temp_path), str(out_path))
+            job["warning"] = f"Audio muxing failed, output is video-only: {_mux_err}"
+            print(f"[video-mux] {_mux_err}", file=sys.stderr)
 
         (VIDEO_DIR / f'_temp_audio_{job_id}.m4a').unlink(missing_ok=True)
 
@@ -3604,29 +3561,21 @@ _FEATURE_CTX = {
     "MAX_OVERLAY_IMG_BYTES": MAX_OVERLAY_IMG_BYTES,
 }
 
-try:
-    from app_features import register_feature_routes
-    register_feature_routes(app, _FEATURE_CTX)
-except ImportError as _e:
-    print(f"[features] not loaded: {_e}", file=sys.stderr)
+from app_features import register_feature_routes
+register_feature_routes(app, _FEATURE_CTX)
 
-try:
-    from app_ai import register_ai_routes
-    register_ai_routes(app, _FEATURE_CTX)
-except ImportError as _e:
-    print(f"[ai] not loaded: {_e}", file=sys.stderr)
+from app_ai import register_ai_routes
+register_ai_routes(app, _FEATURE_CTX)
 
-try:
-    from app_auth import register_auth_routes
-    register_auth_routes(app, _FEATURE_CTX)
-except ImportError as _e:
-    print(f"[auth] not loaded: {_e}", file=sys.stderr)
+from app_auth import register_auth_routes
+register_auth_routes(app, _FEATURE_CTX)
 
+# Google Slides integration is optional — requires OAuth credentials in env.
 try:
     from app_gslides import register_gslides_routes
     register_gslides_routes(app, _FEATURE_CTX)
 except ImportError as _e:
-    print(f"[gslides] not loaded: {_e}", file=sys.stderr)
+    print(f"[gslides] optional module not loaded: {_e}", file=sys.stderr)
 
 
 def _clear_session():
@@ -3639,7 +3588,22 @@ def _clear_session():
         except OSError: pass
 
 
+def _clear_history():
+    """Delete all history snapshots on server exit."""
+    if HISTORY_DIR.exists():
+        shutil.rmtree(HISTORY_DIR, ignore_errors=True)
+        HISTORY_DIR.mkdir(exist_ok=True)
+
+
 if __name__ == "__main__":
+    if not _find_libreoffice():
+        print(
+            "ERROR: LibreOffice not found. SlideCraft requires LibreOffice for PPTX conversion.\n"
+            "Install from https://www.libreoffice.org/download/download/ and restart.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    atexit.register(_clear_history)
     _clear_session()
     # Bind to localhost by default. Set HOST=0.0.0.0 to expose on LAN (no auth!).
     host = os.environ.get('HOST', '127.0.0.1')

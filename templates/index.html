@@ -6,8 +6,8 @@
 <title>SlideCraft — Slide Editor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=6">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/features.css') }}?v=6">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=9">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/features.css') }}?v=9">
 </head>
 <body>
 
@@ -599,7 +599,7 @@
       </div>
       {% endif %}
       <div class="slide-container" id="slide-container" style="width:933px;{% if num_slides == 0 %}display:none{% endif %}">
-        <img id="slide-img" src="{% if num_slides > 0 %}/static/slides/slide-01.jpg{% endif %}" alt="Slide" style="width:100%">
+        <img id="slide-img" src="{% if num_slides > 0 %}/static/slides/slide-001.jpg{% endif %}" alt="Slide" style="width:100%">
         <canvas id="overlay-canvas" class="overlay-canvas"></canvas>
       </div>
     </div>
@@ -1375,7 +1375,7 @@
 </div>
 
 <script>window.NUM_SLIDES = {{ num_slides }};</script>
-<script src="{{ url_for('static', filename='js/app.js') }}?v=6"></script>
-<script src="{{ url_for('static', filename='js/features.js') }}?v=6"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}?v=9"></script>
+<script src="{{ url_for('static', filename='js/features.js') }}?v=9"></script>
 </body>
 </html>

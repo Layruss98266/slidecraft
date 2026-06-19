@@ -34,7 +34,7 @@ First slide upload triggers a one-time ~64 MB EasyOCR model download to `~/.Easy
 |---|---|---|
 | **Python 3.10+** | Everything | 3.11 / 3.12 recommended. 3.13+ works too. |
 | **pip** | Installing Python packages | Bundled with Python on Windows/macOS; on Linux `sudo apt install python3-pip`. |
-| **LibreOffice 7.x+** | PPTX → slide-image conversion | Without it, the app falls back to a low-fidelity Pillow path that loses most slide content. **Strongly recommended.** |
+| **LibreOffice 7.x+** | PPTX → slide-image conversion | **Required.** The app will not start without it. Launchers auto-install via winget (Windows), brew (macOS), or apt/pacman/dnf (Linux). |
 | **Disk space** | ~3 GB | EasyOCR pulls torch (~2 GB) + a model (~64 MB) on first run. |
 | **RAM** | ~1 GB free | Per-slide rendering is small; bulk PPTX processing peaks at ~150 MB per deck. |
 | **Modern browser** | UI | Chrome, Edge, Firefox, Safari — anything from the last 3 years. Canvas + ES2020 required. |
@@ -44,7 +44,7 @@ First slide upload triggers a one-time ~64 MB EasyOCR model download to `~/.Easy
 | Component | Required for | Notes |
 |---|---|---|
 | **ffmpeg** | Video logo removal | moviepy bundles a portable `imageio-ffmpeg` binary, so you usually don't need a system install. |
-| **poppler** | Faster PPTX→image conversion | If `pdf2image` is installed and finds poppler, conversion is faster than the PyMuPDF fallback. Optional. |
+| **poppler** | Fallback PPTX→image conversion | Only needed if PyMuPDF fails. The app uses PyMuPDF (no external binary) as primary; `pdf2image` + poppler is the fallback. Fully optional. |
 | **fonts** | Text rendering | The app looks in OS font dirs (Windows `C:\Windows\Fonts`, macOS `/Library/Fonts`, Linux `/usr/share/fonts`). If a font isn't found, it falls back to Pillow's default. |
 
 ---
@@ -129,7 +129,7 @@ HOST=0.0.0.0 PORT=8080 MAX_UPLOAD_MB=200 python app.py
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest tests/
-# Expect 70+ passing tests, ~15 seconds end-to-end.
+# Expect 88 passing tests, ~15 seconds end-to-end.
 ```
 
 CI runs the same suite on Ubuntu + Windows × Python 3.11 + 3.12 via `.github/workflows/test.yml` on every push.
@@ -138,8 +138,8 @@ CI runs the same suite on Ubuntu + Windows × Python 3.11 + 3.12 via `.github/wo
 
 ## Troubleshooting
 
-### "LibreOffice not found" / slides look mostly blank after upload
-Install LibreOffice (see per-OS section above). The fallback Pillow conversion only renders the first picture shape on each slide — that's why it looks empty.
+### "LibreOffice not found" / server exits immediately
+The launchers (`run.bat`, `run.ps1`, `run.sh`) auto-install LibreOffice on first run. If auto-install failed, install manually (see per-OS section above) and re-run the launcher.
 
 ### First upload takes 30+ seconds
 EasyOCR is downloading its detection + recognition models to `~/.EasyOCR/`. One-time cost. Subsequent uploads use the cached models.

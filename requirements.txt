@@ -7,8 +7,8 @@ moviepy>=2.0
 numpy>=1.24
 
 rembg                                # Background removal (~170 MB model)
-pdf2image                            # Higher-fidelity PPTX→PDF→JPG
-PyMuPDF                              # Fallback PDF→JPG
+PyMuPDF                              # PDF→JPG (primary — no external binary needed)
+pdf2image                            # PDF→JPG fallback (requires poppler in PATH)
 
 # ── Optional extras (uncomment as needed) ─────────────────────────────────
 # authlib                              # Google OAuth login

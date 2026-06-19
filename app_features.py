@@ -243,9 +243,9 @@ def register_feature_routes(app, ctx):
         ext = Path(f.filename or "").suffix.lower()
         if ext not in {".mp3", ".wav", ".ogg", ".m4a", ".webm"}:
             return jsonify({"error": "Unsupported audio format"}), 400
-        target = AUDIO_DIR / f"slide-{num:02d}{ext}"
+        target = AUDIO_DIR / f"slide-{num:03d}{ext}"
         # Remove any other extension for this slide
-        for old in AUDIO_DIR.glob(f"slide-{num:02d}.*"):
+        for old in AUDIO_DIR.glob(f"slide-{num:03d}.*"):
             old.unlink()
         f.save(str(target))
         return jsonify({"ok": True, "url": f"/api/audio/{num}"})
@@ -253,7 +253,7 @@ def register_feature_routes(app, ctx):
     @app.route("/api/audio/<int:num>", methods=["GET"])
     def get_audio(num):
         for ext in (".mp3", ".wav", ".ogg", ".m4a", ".webm"):
-            target = AUDIO_DIR / f"slide-{num:02d}{ext}"
+            target = AUDIO_DIR / f"slide-{num:03d}{ext}"
             if target.exists():
                 return send_file(str(target))
         return jsonify({"error": "No audio for slide"}), 404
@@ -262,7 +262,7 @@ def register_feature_routes(app, ctx):
     def del_audio(num):
         removed = False
         for ext in (".mp3", ".wav", ".ogg", ".m4a", ".webm"):
-            t = AUDIO_DIR / f"slide-{num:02d}{ext}"
+            t = AUDIO_DIR / f"slide-{num:03d}{ext}"
             if t.exists():
                 t.unlink()
                 removed = True
@@ -274,7 +274,7 @@ def register_feature_routes(app, ctx):
         for sf in get_slides():
             num = int(sf.stem.split("-")[1])
             for ext in (".mp3", ".wav", ".ogg", ".m4a", ".webm"):
-                if (AUDIO_DIR / f"slide-{num:02d}{ext}").exists():
+                if (AUDIO_DIR / f"slide-{num:03d}{ext}").exists():
                     result[str(num)] = f"/api/audio/{num}"
                     break
         return jsonify(result)
@@ -332,7 +332,7 @@ def register_feature_routes(app, ctx):
         for old in SLIDES_DIR.glob("slide-*.jpg"):
             old.unlink()
         for i, frame in enumerate(frames_kept):
-            cv2.imwrite(str(SLIDES_DIR / f"slide-{i + 1:02d}.jpg"),
+            cv2.imwrite(str(SLIDES_DIR / f"slide-{i + 1:03d}.jpg"),
                         frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
         if DATA_FILE.exists():
             DATA_FILE.unlink()
