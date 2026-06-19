@@ -47,4 +47,4 @@ if ! _lo_found; then
     echo ">> LibreOffice installed successfully."
 fi
 
-exec python app.py
+exec .venv/bin/python app.py

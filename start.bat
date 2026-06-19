@@ -17,5 +17,4 @@ if not exist "C:\Program Files\LibreOffice\program\soffice.exe" (
     )
 )
 
-call .venv\Scripts\activate.bat
-python app.py
+.venv\Scripts\python.exe app.py

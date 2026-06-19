@@ -49,5 +49,5 @@ if not exist "C:\Program Files\LibreOffice\program\soffice.exe" (
     )
 )
 
-python app.py
+.venv\Scripts\python.exe app.py
 endlocal

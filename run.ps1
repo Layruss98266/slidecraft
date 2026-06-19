@@ -32,4 +32,4 @@ if (-not $soffice -and -not (Test-Path "C:\Program Files\LibreOffice\program\sof
     Write-Host ">> LibreOffice installed successfully."
 }
 
-python app.py
+.\.venv\Scripts\python.exe app.py
