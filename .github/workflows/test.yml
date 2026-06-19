@@ -23,6 +23,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Install LibreOffice (required)
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libreoffice
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            winget install --id TheDocumentFoundation.LibreOffice --silent --accept-package-agreements --accept-source-agreements
+          fi
+        shell: bash
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

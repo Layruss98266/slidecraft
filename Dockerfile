@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# System deps: LibreOffice for high-fidelity PPTX → images, ffmpeg for video/audio,
+# System deps: LibreOffice (required — PPTX→image conversion), ffmpeg for video/audio,
 # fonts for cross-platform baking.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libreoffice \
