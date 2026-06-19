@@ -20,11 +20,16 @@ if (-not $flaskInstalled) {
     pip install -r requirements.txt
 }
 
-# Warn if LibreOffice isn't installed
+# LibreOffice: required. Auto-install via winget if missing.
 $soffice = Get-Command soffice -ErrorAction SilentlyContinue
 if (-not $soffice -and -not (Test-Path "C:\Program Files\LibreOffice\program\soffice.exe")) {
-    Write-Warning "LibreOffice not found. PPTX->slide conversion will use a lossy Pillow fallback."
-    Write-Warning "Install from https://libreoffice.org/download"
+    Write-Host ">> LibreOffice not found — installing via winget (this may take a few minutes)..."
+    winget install --id TheDocumentFoundation.LibreOffice --silent --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Automatic install failed. Install manually from: https://www.libreoffice.org/download/download/"
+        exit 1
+    }
+    Write-Host ">> LibreOffice installed successfully."
 }
 
 python app.py

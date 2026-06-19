@@ -19,13 +19,32 @@ if ! python -c "import flask" 2>/dev/null; then
     pip install -r requirements.txt
 fi
 
-# Warn if LibreOffice isn't on PATH — the Pillow fallback is lossy.
-if ! command -v libreoffice >/dev/null 2>&1 && ! command -v soffice >/dev/null 2>&1; then
-    if [ ! -e "/Applications/LibreOffice.app/Contents/MacOS/soffice" ]; then
-        echo "!! WARNING: LibreOffice not found. PPTX→slide conversion will use a"
-        echo "!! lossy Pillow fallback. Install: brew install --cask libreoffice"
-        echo "!! or sudo apt install libreoffice"
+# LibreOffice: required. Auto-install if missing.
+_lo_found() {
+    command -v libreoffice >/dev/null 2>&1 || \
+    command -v soffice >/dev/null 2>&1 || \
+    [ -e "/Applications/LibreOffice.app/Contents/MacOS/soffice" ]
+}
+if ! _lo_found; then
+    echo ">> LibreOffice not found — installing..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        brew install --cask libreoffice
+    elif command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get install -y libreoffice
+    elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --noconfirm libreoffice-fresh
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y libreoffice
+    else
+        echo "ERROR: Cannot auto-install LibreOffice on this system."
+        echo "Install manually from: https://www.libreoffice.org/download/download/"
+        exit 1
     fi
+    if ! _lo_found; then
+        echo "ERROR: LibreOffice install failed. Install manually from: https://www.libreoffice.org/download/download/"
+        exit 1
+    fi
+    echo ">> LibreOffice installed successfully."
 fi
 
 exec python app.py

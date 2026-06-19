@@ -239,14 +239,14 @@ cd slidecraft
 # Run the launcher for your OS — it will:
 #   1. Create a Python virtual environment in .venv/
 #   2. Install everything listed in requirements.txt
-#   3. Warn you if LibreOffice isn't installed
+#   3. Auto-install LibreOffice if missing (required)
 #   4. Start the Flask server on http://127.0.0.1:5050
 ./run.sh              # macOS / Linux  (chmod +x run.sh once if needed)
 # or run.bat          # Windows — first-time setup + start
 # or .\run.ps1        # Windows (PowerShell)
 ```
 
-The launcher creates `.venv/`, installs `requirements.txt`, warns if LibreOffice isn't installed, then starts the server at http://127.0.0.1:5050. First run takes ~3 min (LibreOffice optional but strongly recommended for high-fidelity slide rendering).
+The launcher creates `.venv/`, installs `requirements.txt`, auto-installs LibreOffice if missing (required), then starts the server at http://127.0.0.1:5050. First run takes ~3–5 min (includes LibreOffice install if needed).
 
 ---
 
@@ -504,11 +504,11 @@ That's it! SlideCraft is running.
 
 ---
 
-### Optional: Install LibreOffice (for better PPTX conversion)
+### LibreOffice (required)
 
-LibreOffice enables high-fidelity PPTX-to-image conversion. Without it, SlideCraft falls back to extracting embedded images.
+LibreOffice is required for PPTX-to-image conversion. The launchers auto-install it on first run. If you need to install manually:
 
-**Windows:** Download from [libreoffice.org](https://www.libreoffice.org/download/) and install.
+**Windows:** `winget install --id TheDocumentFoundation.LibreOffice` or download from [libreoffice.org](https://www.libreoffice.org/download/).
 
 **macOS:**
 ```bash
@@ -517,7 +517,9 @@ brew install --cask libreoffice
 
 **Linux:**
 ```bash
-sudo apt install libreoffice
+sudo apt install libreoffice        # Debian/Ubuntu
+sudo pacman -S libreoffice-fresh    # Arch
+sudo dnf install libreoffice        # Fedora
 ```
 
 ---
@@ -781,7 +783,7 @@ Uses **OpenCV's Telea inpainting algorithm**:
 | `UnicodeEncodeError` on Windows | Run with `set PYTHONIOENCODING=utf-8 && python app.py` |
 | Video processing slow | ~10-30 fps depending on resolution. 1080p 5min = ~5-8 min. |
 | Fonts don't match exactly | Use the Font Family dropdown in Properties. |
-| PPTX upload shows blank slides | Install LibreOffice for proper conversion. |
+| Server exits at startup with "LibreOffice not found" | Run the launcher (`run.bat` / `run.sh` / `run.ps1`) — it auto-installs LibreOffice. |
 | QR code shows placeholder | Install `qrcode` package: `pip install qrcode[pil]` |
 | Stop button not working | Wait a few seconds — cancellation is checked every frame. |
 
