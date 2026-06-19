@@ -45,3 +45,7 @@ desktop.ini
 # Temp files
 *.tmp
 _temp_*
+
+# Test files
+test_*.pptx
+test_*.ppt
