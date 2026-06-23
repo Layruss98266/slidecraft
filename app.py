@@ -2477,6 +2477,137 @@ def preview_watermark(num):
 
 # ── Watermark Detection ─────────────────────────────────────────────────────
 
+# Brand keywords to flag as text-based watermarks. Override with the
+# WATERMARK_BRAND_KEYWORDS env var (comma-separated). Matched case-insensitively
+# anywhere in the OCR/PDF text of a region.
+WATERMARK_BRAND_KEYWORDS = [
+    k.strip().lower() for k in os.environ.get(
+        "WATERMARK_BRAND_KEYWORDS", "edstellar"
+    ).split(",") if k.strip()
+]
+
+# URL / domain / email patterns — also flagged as watermark candidates so the
+# user can wipe attribution links and contact info with a single click.
+_URL_RE    = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_DOMAIN_RE = re.compile(r"\b[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+                        r"\.(?:com|net|org|io|co|in|ai|app|dev|me|us|uk|edu|info|tech|biz)\b",
+                        re.IGNORECASE)
+_EMAIL_RE  = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+", re.IGNORECASE)
+
+
+def _classify_text_hit(text):
+    """Return (label, confidence) if `text` looks like a brand/URL/email
+    watermark, else None. Higher confidence = stronger signal."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    low = t.lower()
+    for kw in WATERMARK_BRAND_KEYWORDS:
+        if kw and kw in low:
+            return (f'brand: "{kw}"', 95.0)
+    if _URL_RE.search(t):
+        return ("link", 92.0)
+    if _EMAIL_RE.search(t):
+        return ("email", 90.0)
+    if _DOMAIN_RE.search(t):
+        return ("domain", 85.0)
+    return None
+
+
+def _find_text_watermark_candidates(slide_idx):
+    """Scan one slide's text (PDF cache first, OCR fallback) for brand
+    keywords and links. Returns watermark-candidate dicts in the same shape
+    as the corner-similarity detector."""
+    slide_files = _get_slide_files()
+    if slide_idx < 0 or slide_idx >= len(slide_files):
+        return []
+
+    regions = []
+    # Prefer cached PDF text (free, accurate)
+    if PDF_TEXT_FILE.exists():
+        try:
+            cache = json.loads(PDF_TEXT_FILE.read_text())
+            regions = cache.get(str(slide_idx + 1), [])
+        except (OSError, ValueError):
+            regions = []
+
+    # Fall back to OCR if the slide has no PDF text
+    if not regions and HAS_OCR:
+        global _ocr_reader
+        if _ocr_reader is None:
+            try:
+                _ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+            except Exception as e:
+                print(f"[detect-watermark] OCR init failed: {e}", file=sys.stderr)
+                return []
+        try:
+            regions = _ocr_one_slide(slide_files[slide_idx])
+        except Exception as e:
+            print(f"[detect-watermark] OCR failed on slide {slide_idx + 1}: {e}", file=sys.stderr)
+            return []
+
+    hits = []
+    for r in regions:
+        cls = _classify_text_hit(r.get("text", ""))
+        if not cls:
+            continue
+        label, conf = cls
+        pad = 0.005  # small outward pad so inpaint covers anti-aliased edges
+        x = max(0.0, r["x"] - pad)
+        y = max(0.0, r["y"] - pad)
+        w = min(1 - x, r["w"] + pad * 2)
+        h = min(1 - y, r["h"] + pad * 2)
+        hits.append({
+            "location": "text-match",
+            "x": round(x, 4), "y": round(y, 4),
+            "w": round(w, 4), "h": round(h, 4),
+            "confidence": conf,
+            "note": f'{label} — "{r["text"][:60]}"',
+            "text": r["text"],
+        })
+    return hits
+
+
+def _dedup_candidates(candidates):
+    """Drop near-duplicate boxes. When a text-match overlaps a corner-match
+    significantly, the text-match wins — it's a much tighter bbox so inpainting
+    only erases the actual text, not the whole corner strip."""
+    def _area(a):
+        return max(0.0, a["w"]) * max(0.0, a["h"])
+
+    def _coverage(small, big):
+        """Fraction of `small`'s area that is inside `big`."""
+        ix1 = max(small["x"], big["x"])
+        iy1 = max(small["y"], big["y"])
+        ix2 = min(small["x"] + small["w"], big["x"] + big["w"])
+        iy2 = min(small["y"] + small["h"], big["y"] + big["h"])
+        iw = max(0, ix2 - ix1); ih = max(0, iy2 - iy1)
+        inter = iw * ih
+        s = _area(small)
+        return inter / s if s > 0 else 0.0
+
+    text_hits   = [c for c in candidates if c.get("location") == "text-match"]
+    other_hits  = [c for c in candidates if c.get("location") != "text-match"]
+
+    # Drop any corner-hit that is mostly covered by one or more text-hits —
+    # the tight text boxes do a cleaner job. Also drop redundant text-hits.
+    pruned_others = []
+    for o in other_hits:
+        covered = sum(_area(t) for t in text_hits if _coverage(t, o) > 0.7)
+        if _area(o) > 0 and covered / _area(o) > 0.4:
+            continue
+        pruned_others.append(o)
+
+    # Dedup text-hits against each other by simple overlap
+    kept_text = []
+    for t in sorted(text_hits, key=lambda c: c["confidence"], reverse=True):
+        if any(_coverage(t, k) > 0.6 or _coverage(k, t) > 0.6 for k in kept_text):
+            continue
+        kept_text.append(t)
+
+    return pruned_others + kept_text
+
+
 @app.route("/api/detect-watermark/<int:num>", methods=["POST"])
 def detect_watermark(num):
     """Detect watermark regions by cross-slide consistency.
@@ -2563,8 +2694,17 @@ def detect_watermark(num):
                     "note": f"matches across {len(crops)} slides",
                 })
 
+    # Also flag any text on this slide that looks like a brand wordmark, URL,
+    # email, or domain. Reuses cached PDF text where present, else OCR.
+    text_hits = _find_text_watermark_candidates(num - 1)
+    candidates.extend(text_hits)
+    candidates = _dedup_candidates(candidates)
     candidates.sort(key=lambda c: c["confidence"], reverse=True)
-    return jsonify({"candidates": candidates, "sampled_slides": len(sample_imgs)})
+    return jsonify({
+        "candidates": candidates,
+        "sampled_slides": len(sample_imgs),
+        "text_hits": len(text_hits),
+    })
 
 
 @app.route("/api/remove-watermark/<int:num>", methods=["POST"])

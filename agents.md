@@ -9,6 +9,8 @@ PDF uploads also extract a per-page text layer (real text + bbox + font size + c
 
 OCR has two scopes in the UI: the **OCR** button hits `/api/ocr/<num>` for the current slide; the **All** button hits `/api/ocr-all` and stores results per slide in `ocrRegionsBySlide` so the regions follow the user as they navigate. `/api/ocr-all` transparently uses the PDF text cache for any slide where it exists (returning `source: "pdf"|"ocr"|"mixed"`), so PDF decks skip EasyOCR entirely.
 
+The **Detect & Remove** watermark flow now flags text-based watermarks in addition to corner-similarity matches: brand keywords (default `edstellar`, override via `WATERMARK_BRAND_KEYWORDS=foo,bar` env var), URLs, email addresses, and bare domains. Text hits use cached PDF text where available, OCR otherwise. `_dedup_candidates` prefers tight text-match bboxes over wide corner-strip bboxes so inpainting only erases the actual text — not the entire corner.
+
 ## Stack
 - **Backend**: Python 3.10+, Flask 3.x, python-pptx, Pillow, OpenCV, EasyOCR, MoviePy, PyMuPDF
 - **Frontend**: Vanilla JS (`static/js/app.js` ~4000 lines), HTML/CSS (`templates/index.html`)
