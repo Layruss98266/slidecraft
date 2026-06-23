@@ -1,7 +1,13 @@
 # SlideCraft — Agent Context
 
 ## Overview
-Flask + vanilla JS web app for editing PPTX slide decks in the browser. Upload a `.pptx`, edit slides (overlays, filters, text, shapes, watermarks, audio, video), export back to PPTX/PDF/GIF.
+Flask + vanilla JS web app for editing PPTX/PDF slide decks in the browser. Upload a `.pptx` or `.pdf`, edit slides (overlays, filters, text, shapes, watermarks, audio, video), export back to PPTX/PDF/GIF.
+
+PDF upload skips LibreOffice and renders pages straight to per-slide JPGs via PyMuPDF (`_render_pdf_to_images`). Editing is image-based, so the rest of the pipeline is format-agnostic after ingest.
+
+PDF uploads also extract a per-page text layer (real text + bbox + font size + color) into `pdf_text.json` via `_extract_pdf_text_layer`. The frontend's "Detect text" button checks `/api/pdf-text/<num>` first and only falls back to EasyOCR if the cache is empty — instant + accurate for native PDFs. PPTX uploads clear the cache so stale data never leaks.
+
+OCR has two scopes in the UI: the **OCR** button hits `/api/ocr/<num>` for the current slide; the **All** button hits `/api/ocr-all` and stores results per slide in `ocrRegionsBySlide` so the regions follow the user as they navigate. `/api/ocr-all` transparently uses the PDF text cache for any slide where it exists (returning `source: "pdf"|"ocr"|"mixed"`), so PDF decks skip EasyOCR entirely.
 
 ## Stack
 - **Backend**: Python 3.10+, Flask 3.x, python-pptx, Pillow, OpenCV, EasyOCR, MoviePy, PyMuPDF
@@ -55,6 +61,7 @@ Use `request.get_json(force=True, silent=True)` — NOT `request.json`. Flask 3.
 - `static/slides/` and `static/audio/` are runtime state — not committed, not in git
 - `history/` dir — not committed (in .gitignore)
 - `master_slide.json` — runtime state, not committed
+- `pdf_text.json` — runtime cache of extracted PDF text layer, not committed
 - `logo.png` — committed (used in UI)
 
 ## Env Vars
@@ -62,6 +69,7 @@ Use `request.get_json(force=True, silent=True)` — NOT `request.json`. Flask 3.
 |---|---|---|
 | `HOST` | `127.0.0.1` | Set `0.0.0.0` for LAN access |
 | `PORT` | `5050` | Server port |
+| `MAX_EXPORT_MB` | `10` | Hard cap on every export (PPTX/PDF/PNG-ZIP/GIF). Exports are iteratively re-rendered at smaller scale/quality until they fit. |
 
 No `.env` file needed — all defaults are safe for local dev.
 
