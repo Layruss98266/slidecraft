@@ -37,22 +37,36 @@ def _ensure_dict(payload):
     """Return payload if dict, else empty dict."""
     return payload if isinstance(payload, dict) else {}
 
-# OCR — use EasyOCR (no external binary needed, works out of the box)
-HAS_OCR = False
-_ocr_reader = None
-try:
-    import easyocr
-    HAS_OCR = True
-except ImportError:
-    pass
+# Heavy ML deps (easyocr → torch ~2 GB, rembg → onnxruntime ~500 MB) are
+# LAZY-IMPORTED on first use. Importing them at module load would eat ~2 GB of
+# RAM before Flask even binds a port, which crashes low-memory systems. We do
+# a cheap importlib.util.find_spec check so the UI can still know whether the
+# feature is available without paying the import cost.
+import importlib.util as _importlib_util
 
-# Background removal — rembg (optional, ~170 MB model download on first use)
-HAS_REMBG = False
-try:
-    from rembg import remove as rembg_remove
-    HAS_REMBG = True
-except ImportError:
-    pass
+HAS_OCR = _importlib_util.find_spec("easyocr") is not None
+HAS_REMBG = _importlib_util.find_spec("rembg") is not None
+_ocr_reader = None
+_easyocr_mod = None
+_rembg_remove = None
+
+
+def _load_easyocr():
+    """Import easyocr on demand. Cached on the module after first call."""
+    global _easyocr_mod
+    if _easyocr_mod is None:
+        import easyocr as _eo
+        _easyocr_mod = _eo
+    return _easyocr_mod
+
+
+def _load_rembg():
+    """Import rembg.remove on demand. Cached on the module after first call."""
+    global _rembg_remove
+    if _rembg_remove is None:
+        from rembg import remove as _rm
+        _rembg_remove = _rm
+    return _rembg_remove
 
 app = Flask(__name__)
 # Default upload cap is 1 GB so the bulk endpoint comfortably accepts 20 PPTX
@@ -62,6 +76,7 @@ app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_MB', 1024)) * 
 # Cap base64 image-overlay payloads embedded in JSON requests (bytes after decode)
 MAX_OVERLAY_IMG_BYTES = 8 * 1024 * 1024  # 8 MB decoded
 MAX_EXPORT_BYTES = int(os.environ.get('MAX_EXPORT_MB', 10)) * 1024 * 1024  # hard cap on every export
+MAX_PDF_PAGES = int(os.environ.get('MAX_PDF_PAGES', 300))  # refuse PDFs larger than this — RAM safety
 # Progressively smaller (scale, quality) pairs tried until the export fits.
 _EXPORT_FIT_LEVELS = [
     (1.00, 90), (1.00, 78), (0.90, 75), (0.80, 72),
@@ -439,26 +454,24 @@ def _render_pdf_to_images(pdf_path, output_dir):
     """Render every page of a PDF to slide-NNN.jpg in output_dir."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    import fitz
+    doc = fitz.open(str(pdf_path))
     try:
-        import fitz
-        doc = fitz.open(str(pdf_path))
-        if doc.page_count == 0:
-            doc.close()
+        n = doc.page_count
+        if n == 0:
             raise RuntimeError("PDF has no pages")
+        if n > MAX_PDF_PAGES:
+            raise RuntimeError(
+                f"PDF has {n} pages — limit is {MAX_PDF_PAGES}. "
+                f"Split the file or raise MAX_PDF_PAGES.")
         mat = fitz.Matrix(2.5, 2.5)  # 2.5× scale ≈ 240 DPI — sharper text/edges
         for i, page in enumerate(doc):
             pix = page.get_pixmap(matrix=mat, alpha=False)
             (output_dir / f"slide-{i+1:03d}.jpg").write_bytes(
                 pix.tobytes("jpeg", jpg_quality=97))
+            pix = None  # release ~7-10 MB pixmap before the next iteration
+    finally:
         doc.close()
-    except ImportError:
-        from pdf2image import convert_from_path
-        pages = convert_from_path(str(pdf_path), dpi=300)
-        if not pages:
-            raise RuntimeError("PDF has no pages")
-        for i, img in enumerate(pages):
-            img.convert("RGB").save(
-                str(output_dir / f"slide-{i+1:03d}.jpg"), "JPEG", quality=97)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -527,6 +540,163 @@ def remove_logo_from_existing():
                      scope="all", count=len(slides), snapshot=snapshot)
     return jsonify({"ok": True, "count": len(slides),
                     "snapshot": snapshot, "log_id": log_id})
+
+
+# Top-left corner zone scanned for the Edstellar wordmark (normalized coords).
+# Tight crop — covers typical placement (top-left ~22% wide × 12% tall) while
+# minimising OCR pixel count.
+_EDSTELLAR_TL_ZONE = (0.0, 0.0, 0.22, 0.12)  # (x, y, w, h)
+_EDSTELLAR_RE = re.compile(r"edstellar", re.IGNORECASE)
+# Below this edge density the crop is effectively blank — no text, skip OCR.
+_EDSTELLAR_EDGE_DENSITY_FLOOR = 0.005
+# Max worker threads for parallel OCR across slides. EasyOCR releases the GIL
+# during torch inference so threads (not processes) give real speedup without
+# the multiprocessing fork cost.
+_EDSTELLAR_OCR_WORKERS = max(1, min(4, (os.cpu_count() or 2) - 1))
+
+
+def _crop_has_ink(crop_bgr):
+    """Cheap pre-filter: True if the crop has enough edge content to plausibly
+    contain text. Avoids the EasyOCR roundtrip on blank corners."""
+    import cv2
+    # Downscale before Canny — we only need a coarse edge-density estimate.
+    h, w = crop_bgr.shape[:2]
+    if h < 4 or w < 4:
+        return False
+    scale = 200.0 / max(h, w)
+    if scale < 1.0:
+        small = cv2.resize(crop_bgr, (max(1, int(w * scale)), max(1, int(h * scale))))
+    else:
+        small = crop_bgr
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150)
+    density = float((edges > 0).sum()) / max(1, edges.size)
+    return density >= _EDSTELLAR_EDGE_DENSITY_FLOOR
+
+
+@app.route("/api/remove-edstellar-text", methods=["POST"])
+def remove_edstellar_text():
+    """Erase the 'Edstellar' wordmark from the top-left corner of every slide.
+
+    Three-tier strategy, fastest to slowest:
+      1. PDF text-layer cache (PDF uploads) — pure JSON lookup, no OCR.
+      2. Edge-density check on the cropped corner — skip OCR if the corner
+         is effectively blank.
+      3. EasyOCR on the corner crop only, batched across slides via a
+         thread pool (EasyOCR releases the GIL).
+    """
+    import cv2
+    import numpy as np
+    from concurrent.futures import ThreadPoolExecutor
+
+    slides = sorted(SLIDES_DIR.glob("slide-*.jpg"))
+    if not slides:
+        return jsonify({"ok": True, "removed": 0, "slides_scanned": 0})
+
+    zx, zy, zw, zh = _EDSTELLAR_TL_ZONE
+    pdf_cache = {}
+    if PDF_TEXT_FILE.exists():
+        try:
+            pdf_cache = json.loads(PDF_TEXT_FILE.read_text())
+        except (OSError, ValueError):
+            pdf_cache = {}
+
+    # ─── Pass 1: load + classify each slide into PDF-hit / needs-OCR / skip
+    per_slide = []  # list of dicts: {idx, path, img, h, w, hits, crop, cx1, cy1}
+    needs_ocr = []  # indices into per_slide
+    for i, path in enumerate(slides, start=1):
+        img = cv2.imread(str(path))
+        if img is None:
+            continue
+        h, w = img.shape[:2]
+        hits = []
+        for r in (pdf_cache.get(str(i)) or []):
+            if not _EDSTELLAR_RE.search(r.get("text", "")):
+                continue
+            if r["x"] > zx + zw or r["y"] > zy + zh:
+                continue
+            x1 = max(0, int(r["x"] * w))
+            y1 = max(0, int(r["y"] * h))
+            x2 = min(w, int((r["x"] + r["w"]) * w))
+            y2 = min(h, int((r["y"] + r["h"]) * h))
+            if x2 > x1 and y2 > y1:
+                hits.append((x1, y1, x2, y2))
+
+        entry = {"idx": i, "path": path, "img": img, "h": h, "w": w, "hits": hits}
+        if not hits and HAS_OCR:
+            cx1 = int(zx * w); cy1 = int(zy * h)
+            cx2 = int((zx + zw) * w); cy2 = int((zy + zh) * h)
+            crop = img[cy1:cy2, cx1:cx2]
+            if crop.size > 0 and _crop_has_ink(crop):
+                entry["crop"] = crop
+                entry["cx1"] = cx1
+                entry["cy1"] = cy1
+                needs_ocr.append(len(per_slide))
+        per_slide.append(entry)
+
+    # ─── Pass 2: thread-pooled OCR for slides that survived the pre-filter
+    if needs_ocr:
+        global _ocr_reader
+        if _ocr_reader is None:
+            _ocr_reader = _load_easyocr().Reader(['en'], gpu=False, verbose=False)
+
+        def _ocr_one(entry):
+            try:
+                return entry, _ocr_reader.readtext(entry["crop"])
+            except Exception as e:
+                print(f"[edstellar] OCR failed on slide {entry['idx']}: {e}", file=sys.stderr)
+                return entry, []
+
+        with ThreadPoolExecutor(max_workers=_EDSTELLAR_OCR_WORKERS) as ex:
+            for entry, results in ex.map(_ocr_one, (per_slide[i] for i in needs_ocr)):
+                crop = entry["crop"]
+                cx1, cy1 = entry["cx1"], entry["cy1"]
+                for (bbox, text, conf) in results:
+                    if conf < 0.4 or not _EDSTELLAR_RE.search(text):
+                        continue
+                    xs = [p[0] for p in bbox]
+                    ys = [p[1] for p in bbox]
+                    x1 = cx1 + max(0, int(min(xs)))
+                    y1 = cy1 + max(0, int(min(ys)))
+                    x2 = cx1 + min(crop.shape[1], int(max(xs)))
+                    y2 = cy1 + min(crop.shape[0], int(max(ys)))
+                    if x2 > x1 and y2 > y1:
+                        entry["hits"].append((x1, y1, x2, y2))
+
+    # Snapshot only if we have anything to do — keeps undo history clean.
+    will_touch = any(e["hits"] for e in per_slide)
+    snapshot = _snapshot_before_destructive("remove-edstellar-text") if will_touch else None
+
+    # ─── Pass 3: inpaint + write only the slides with hits
+    removed = 0
+    touched_slides = 0
+    for e in per_slide:
+        if not e["hits"]:
+            continue
+        h, w, img = e["h"], e["w"], e["img"]
+        mask = np.zeros((h, w), dtype=np.uint8)
+        pad = max(2, int(min(w, h) * 0.005))
+        for (x1, y1, x2, y2) in e["hits"]:
+            x1 = max(0, x1 - pad); y1 = max(0, y1 - pad)
+            x2 = min(w, x2 + pad); y2 = min(h, y2 + pad)
+            mask[y1:y2, x1:x2] = 255
+        result = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+        cv2.imwrite(str(e["path"]), result, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        removed += len(e["hits"])
+        touched_slides += 1
+
+    log_id = None
+    if touched_slides:
+        log_id = _log_op("remove-edstellar-text",
+                         text=f"Removed Edstellar text from top-left on {touched_slides} slide(s)",
+                         scope="all", count=touched_slides, snapshot=snapshot)
+    return jsonify({"ok": True,
+                    "removed": removed,
+                    "slides_touched": touched_slides,
+                    "slides_scanned": len(slides),
+                    "ocr_slides": len(needs_ocr),
+                    "snapshot": snapshot,
+                    "log_id": log_id})
 
 
 @app.route("/api/slide/<int:num>/reset", methods=["POST"])
@@ -1188,7 +1358,7 @@ def ocr_slide(num):
 
     global _ocr_reader
     if _ocr_reader is None:
-        _ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+        _ocr_reader = _load_easyocr().Reader(['en'], gpu=False, verbose=False)
 
     try:
         merged = _ocr_one_slide(slide_files[num - 1])
@@ -1254,7 +1424,7 @@ def ocr_all_slides():
             return jsonify({"error": "EasyOCR is not installed. Run: pip install easyocr"}), 400
         global _ocr_reader
         if _ocr_reader is None:
-            _ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+            _ocr_reader = _load_easyocr().Reader(['en'], gpu=False, verbose=False)
         for i, sf in needs_ocr:
             try:
                 regions_by_slide[str(i)] = _ocr_one_slide(sf)
@@ -1498,7 +1668,7 @@ def remove_background():
         raw = base64.b64decode(b64data)
         if len(raw) > MAX_OVERLAY_IMG_BYTES:
             return jsonify({"error": "Image too large (max 8 MB)"}), 413
-        result = rembg_remove(raw)
+        result = _load_rembg()(raw)
         b64out = base64.b64encode(result).decode()
         return jsonify({"src": f"data:image/png;base64,{b64out}"})
     except Exception as e:
@@ -2536,7 +2706,7 @@ def _find_text_watermark_candidates(slide_idx):
         global _ocr_reader
         if _ocr_reader is None:
             try:
-                _ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+                _ocr_reader = _load_easyocr().Reader(['en'], gpu=False, verbose=False)
             except Exception as e:
                 print(f"[detect-watermark] OCR init failed: {e}", file=sys.stderr)
                 return []

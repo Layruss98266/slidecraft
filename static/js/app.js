@@ -2575,6 +2575,28 @@ async function removeLogos() {
   }
 }
 
+async function removeEdstellarText() {
+  showLoading('Erasing Edstellar text from top-left of every slide…');
+  try {
+    const resp = await fetch('/api/remove-edstellar-text', { method: 'POST' });
+    const data = await resp.json();
+    hideLoading();
+    if (!data.ok) {
+      showToast(data.error || 'Failed to remove Edstellar text', 'error');
+      return;
+    }
+    if (data.slides_touched === 0) {
+      showToast(`No Edstellar text found in the top-left of any slide (scanned ${data.slides_scanned})`, 'info', 4000);
+      return;
+    }
+    showToast(`Erased ${data.removed} hit(s) on ${data.slides_touched} slide(s). Reloading…`, 'success');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) {
+    hideLoading();
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // THUMBNAIL DRAG REORDER
 // ══════════════════════════════════════════════════════════════════════════
