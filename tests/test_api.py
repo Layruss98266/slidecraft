@@ -469,6 +469,41 @@ def test_upload_no_file(app_with_slides):
     assert r.status_code == 400
 
 
+def test_detect_watermark_flags_brand_and_url_text(app_with_slides):
+    """Brand wordmarks (e.g. 'Edstellar') and links/emails must surface
+    as watermark candidates so the user can wipe them in one click."""
+    import fitz
+    client, app_module = app_with_slides
+
+    doc = fitz.open()
+    for i in range(3):
+        page = doc.new_page(width=800, height=450)
+        page.insert_text((40, 50), "Edstellar", fontsize=28)
+        page.insert_text((40, 100), f"Phase {i + 1} Heading", fontsize=22)
+        page.insert_text((40, 410),
+                         "Visit https://edstellar.com or info@edstellar.com",
+                         fontsize=12)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    r = client.post("/api/upload",
+                    data={"file": (io.BytesIO(pdf_bytes), "demo.pdf")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+
+    r = client.post("/api/detect-watermark/1")
+    data = r.get_json()
+    assert data["text_hits"] >= 2, data
+    text_cands = [c for c in data["candidates"] if c["location"] == "text-match"]
+    notes = " ".join(c.get("note", "") for c in text_cands).lower()
+    # Brand wordmark + link/email line are both surfaced
+    assert "edstellar" in notes
+    assert any("edstellar.com" in c.get("text", "").lower() for c in text_cands)
+    # Tight bboxes — should NOT cover a huge fraction of the slide
+    for c in text_cands:
+        assert c["w"] * c["h"] < 0.2, c
+
+
 def test_pdf_upload_extracts_text_layer(app_with_slides):
     """PDF upload should render slides AND cache an extractable text layer."""
     import fitz
