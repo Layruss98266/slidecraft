@@ -72,8 +72,12 @@ Use `request.get_json(force=True, silent=True)` — NOT `request.json`. Flask 3.
 | `HOST` | `127.0.0.1` | Set `0.0.0.0` for LAN access |
 | `PORT` | `5050` | Server port |
 | `MAX_EXPORT_MB` | `10` | Hard cap on every export (PPTX/PDF/PNG-ZIP/GIF). Exports are iteratively re-rendered at smaller scale/quality until they fit. |
+| `MAX_PDF_PAGES` | `300` | Refuse PDF uploads with more pages. Each page renders to a ~7-10 MB pixmap at 2.5× scale — uncapped uploads will OOM low-memory systems. |
 
 No `.env` file needed — all defaults are safe for local dev.
+
+## Memory Behavior
+EasyOCR (torch ~1.5–2 GB) and rembg (onnxruntime ~500 MB) are **lazy-loaded** on first use via `_load_easyocr()` / `_load_rembg()`. Module import is cheap (~25 MB). `HAS_OCR` / `HAS_REMBG` use `importlib.util.find_spec` so capability checks don't pay the import cost. Never re-add eager `import easyocr` or `from rembg import ...` at module scope.
 
 ## What to Avoid
 - Never use 2-digit slide padding (`:02d`, `padStart(2,'0')`) — backend generates 3-digit filenames
