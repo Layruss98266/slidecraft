@@ -107,7 +107,7 @@
     <div class="help-body">
       <div class="help-section">
         <h3>Getting Started</h3>
-        <div class="help-step"><span class="help-num">1</span><div><strong>Upload a PPTX</strong><br>Click <em>Upload</em> in the header or drag & drop a .pptx file anywhere on the page.</div></div>
+        <div class="help-step"><span class="help-num">1</span><div><strong>Upload a PPTX or PDF</strong><br>Click <em>Upload</em> in the header or drag & drop a .pptx / .pdf file anywhere on the page.</div></div>
         <div class="help-step"><span class="help-num">2</span><div><strong>Remove NotebookLM Logo</strong><br>Click <em>Remove Logo</em> to seamlessly erase the watermark from all slides using AI inpainting.</div></div>
         <div class="help-step"><span class="help-num">3</span><div><strong>Edit & Export</strong><br>Add overlays, edit text, apply filters, then click <em>PPTX</em>, <em>PDF</em>, <em>PNG</em>, or <em>GIF</em> to export.</div></div>
       </div>
@@ -230,10 +230,10 @@
     <!-- FILE group -->
     <div class="action-group">
       <span class="group-label">File</span>
-      <label class="btn-action" style="cursor:pointer" title="Upload PPTX file">
+      <label class="btn-action" style="cursor:pointer" title="Upload PPTX or PDF file">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
         <span class="act-label">Upload</span>
-        <input type="file" accept=".pptx" id="upload-input" onchange="uploadPPTX(this)" style="display:none">
+        <input type="file" accept=".pptx,.pdf" id="upload-input" onchange="uploadPPTX(this)" style="display:none">
       </label>
       <label class="btn-action bulk-btn" style="cursor:pointer" title="Bulk: upload multiple PPTX, remove logos, download ZIP">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v2"/><path d="M20 16v2a2 2 0 01-2 2h-2"/><path d="M4 8V6a2 2 0 012-2h2"/><path d="M8 20H6a2 2 0 01-2-2v-2"/><path d="M9 12l3-3 3 3"/><path d="M12 9v6"/></svg>
@@ -519,9 +519,13 @@
 
       <span class="toolbar-label">SLIDE</span>
       <div class="tool-group">
-        <button class="tool-btn btn-sm" onclick="detectText()" title="Detect text (OCR)" id="btn-ocr">
+        <button class="tool-btn btn-sm" onclick="detectText()" title="Detect text on current slide" id="btn-ocr">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
           OCR
+        </button>
+        <button class="tool-btn btn-sm" onclick="detectTextAll()" title="Detect text on every slide" id="btn-ocr-all">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          All
         </button>
         <button class="tool-btn btn-sm" onclick="clearOCR()" title="Clear OCR" id="btn-clear-ocr" style="display:none">X</button>
         <button class="tool-btn btn-sm" onclick="startCrop()" title="Crop">
@@ -583,8 +587,8 @@
         <div class="empty-actions">
           <label class="empty-btn primary" style="cursor:pointer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
-            Upload PPTX
-            <input type="file" accept=".pptx" onchange="uploadPPTX(this)" style="display:none">
+            Upload PPTX/PDF
+            <input type="file" accept=".pptx,.pdf" onchange="uploadPPTX(this)" style="display:none">
           </label>
           <label class="empty-btn" style="cursor:pointer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v2"/><path d="M20 16v2a2 2 0 01-2 2h-2"/><path d="M4 8V6a2 2 0 012-2h2"/><path d="M8 20H6a2 2 0 01-2-2v-2"/><path d="M9 12l3-3 3 3"/><path d="M12 9v6"/></svg>

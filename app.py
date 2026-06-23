@@ -61,6 +61,43 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_MB', 1024)) * 1024 * 1024
 # Cap base64 image-overlay payloads embedded in JSON requests (bytes after decode)
 MAX_OVERLAY_IMG_BYTES = 8 * 1024 * 1024  # 8 MB decoded
+MAX_EXPORT_BYTES = int(os.environ.get('MAX_EXPORT_MB', 10)) * 1024 * 1024  # hard cap on every export
+# Progressively smaller (scale, quality) pairs tried until the export fits.
+_EXPORT_FIT_LEVELS = [
+    (1.00, 90), (1.00, 78), (0.90, 75), (0.80, 72),
+    (0.70, 68), (0.60, 62), (0.50, 58), (0.42, 55), (0.35, 50),
+]
+
+
+def _compress_slide_jpgs(slide_files, dest_dir, scale, quality):
+    """Re-encode each slide JPG into dest_dir at the given scale & quality.
+    Returns the list of new paths in the same order."""
+    from PIL import Image as _PILImage
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out = []
+    for sf in slide_files:
+        img = _PILImage.open(sf).convert("RGB")
+        if scale < 1.0:
+            new_w = max(1, int(img.width * scale))
+            new_h = max(1, int(img.height * scale))
+            img = img.resize((new_w, new_h), _PILImage.LANCZOS)
+        target = dest_dir / sf.name
+        img.save(str(target), "JPEG", quality=quality, optimize=True)
+        out.append(target)
+    return out
+
+
+def _fit_export_under_cap(out_path, render_fn, max_bytes=MAX_EXPORT_BYTES):
+    """Iteratively call render_fn(scale, quality) writing to out_path until
+    its size is <= max_bytes. Falls back to the smallest pass if nothing fits."""
+    last_size = None
+    for scale, quality in _EXPORT_FIT_LEVELS:
+        render_fn(scale, quality)
+        last_size = Path(out_path).stat().st_size
+        if last_size <= max_bytes:
+            return scale, quality, last_size
+    return _EXPORT_FIT_LEVELS[-1][0], _EXPORT_FIT_LEVELS[-1][1], last_size
 
 
 # Friendly 413 handler so the bulk uploader can show a useful toast instead of
@@ -86,6 +123,7 @@ ORIGINALS_DIR = SLIDES_DIR / "_originals"
 UPLOAD_DIR = BASE_DIR / "uploads"
 EXPORT_DIR = BASE_DIR / "exports"
 DATA_FILE  = BASE_DIR / "slide_data.json"
+PDF_TEXT_FILE = BASE_DIR / "pdf_text.json"  # cached per-slide PDF text regions (PDF uploads only)
 VIDEO_DIR  = BASE_DIR / "videos"
 EXPORT_DIR.mkdir(exist_ok=True)
 VIDEO_DIR.mkdir(exist_ok=True)
@@ -260,11 +298,76 @@ def remove_logos_batch(slide_files):
 def process_uploaded_pptx(pptx_path):
     """Convert PPTX slides to JPG images. Atomic: stages to a temp dir and
     only swaps into place on success. Originals are preserved for reset."""
+    _stage_and_swap(lambda stage_dir: _convert_pptx_to_images_libreoffice(pptx_path, stage_dir))
+    # Not a PDF — drop any stale text-layer cache from a previous PDF upload.
+    PDF_TEXT_FILE.unlink(missing_ok=True)
+
+
+def process_uploaded_pdf(pdf_path):
+    """Render PDF pages directly to slide JPGs. Same atomic stage/swap as PPTX.
+    Also extracts a per-page text layer so the editor can offer instant
+    click-to-edit on real text (no OCR roundtrip)."""
+    _stage_and_swap(lambda stage_dir: _render_pdf_to_images(pdf_path, stage_dir))
+    try:
+        text_map = _extract_pdf_text_layer(pdf_path)
+        PDF_TEXT_FILE.write_text(json.dumps(text_map))
+    except Exception as e:
+        # Text-layer is a nice-to-have; never fail the upload over it.
+        print(f"[upload] pdf text-layer extraction failed: {e}", file=sys.stderr)
+        PDF_TEXT_FILE.unlink(missing_ok=True)
+
+
+def _extract_pdf_text_layer(pdf_path):
+    """Return {slide_num_str: [region, ...]} where region matches the OCR
+    endpoint shape: {text, x, y, w, h, fontSize, color}. Coords are normalized
+    to page size. Empty list per page means a pure-image PDF (no text layer)."""
+    import fitz
+    out = {}
+    doc = fitz.open(str(pdf_path))
+    try:
+        for i, page in enumerate(doc):
+            pw, ph = page.rect.width, page.rect.height
+            if pw <= 0 or ph <= 0:
+                out[str(i + 1)] = []
+                continue
+            regions = []
+            # "dict" mode gives blocks → lines → spans with font + color metadata.
+            data = page.get_text("dict")
+            for block in data.get("blocks", []):
+                if block.get("type", 0) != 0:  # 0 = text block, 1 = image
+                    continue
+                for line in block.get("lines", []):
+                    line_text = "".join(span.get("text", "") for span in line.get("spans", [])).strip()
+                    if not line_text:
+                        continue
+                    bbox = line.get("bbox") or [0, 0, 0, 0]
+                    x1, y1, x2, y2 = bbox
+                    # Use the largest span's metadata as the line's representative.
+                    spans = line.get("spans", [])
+                    rep = max(spans, key=lambda s: s.get("size", 0)) if spans else {}
+                    color_int = rep.get("color", 0)
+                    r, g, b = (color_int >> 16) & 0xFF, (color_int >> 8) & 0xFF, color_int & 0xFF
+                    regions.append({
+                        "text": line_text,
+                        "x": max(0.0, x1 / pw),
+                        "y": max(0.0, y1 / ph),
+                        "w": max(0.0, (x2 - x1) / pw),
+                        "h": max(0.0, (y2 - y1) / ph),
+                        "fontSize": round(rep.get("size", 0), 1),
+                        "color": f"#{r:02X}{g:02X}{b:02X}",
+                    })
+            out[str(i + 1)] = regions
+    finally:
+        doc.close()
+    return out
+
+
+def _stage_and_swap(render_fn):
     import tempfile
     SLIDES_DIR.mkdir(parents=True, exist_ok=True)
     stage_dir = Path(tempfile.mkdtemp(prefix="slides_stage_"))
     try:
-        _convert_pptx_to_images_libreoffice(pptx_path, stage_dir)
+        render_fn(stage_dir)
 
         staged = sorted(stage_dir.glob("slide-*.jpg"))
         if not staged:
@@ -327,22 +430,35 @@ def _convert_pptx_to_images_libreoffice(pptx_path, output_dir=None):
         if not pdf_files:
             raise RuntimeError("PDF conversion produced no output")
 
-        try:
-            import fitz
-            doc = fitz.open(str(pdf_files[0]))
-            mat = fitz.Matrix(2.5, 2.5)  # 2.5× scale ≈ 240 DPI — sharper text/edges
-            for i, page in enumerate(doc):
-                pix = page.get_pixmap(matrix=mat, alpha=False)
-                (dest / f"slide-{i+1:03d}.jpg").write_bytes(
-                    pix.tobytes("jpeg", jpg_quality=97))
-            doc.close()
-        except ImportError:
-            from pdf2image import convert_from_path
-            for i, img in enumerate(convert_from_path(str(pdf_files[0]), dpi=300)):
-                img.convert("RGB").save(
-                    str(dest / f"slide-{i+1:03d}.jpg"), "JPEG", quality=97)
+        _render_pdf_to_images(pdf_files[0], dest)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _render_pdf_to_images(pdf_path, output_dir):
+    """Render every page of a PDF to slide-NNN.jpg in output_dir."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        import fitz
+        doc = fitz.open(str(pdf_path))
+        if doc.page_count == 0:
+            doc.close()
+            raise RuntimeError("PDF has no pages")
+        mat = fitz.Matrix(2.5, 2.5)  # 2.5× scale ≈ 240 DPI — sharper text/edges
+        for i, page in enumerate(doc):
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            (output_dir / f"slide-{i+1:03d}.jpg").write_bytes(
+                pix.tobytes("jpeg", jpg_quality=97))
+        doc.close()
+    except ImportError:
+        from pdf2image import convert_from_path
+        pages = convert_from_path(str(pdf_path), dpi=300)
+        if not pages:
+            raise RuntimeError("PDF has no pages")
+        for i, img in enumerate(pages):
+            img.convert("RGB").save(
+                str(output_dir / f"slide-{i+1:03d}.jpg"), "JPEG", quality=97)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
@@ -363,26 +479,35 @@ def get_slide(num):
 
 @app.route("/api/upload", methods=["POST"])
 def upload_pptx():
-    """Upload a PPTX file, convert to slide images, and remove NotebookLM logo."""
+    """Upload a PPTX or PDF file and convert to slide images."""
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
     f = request.files["file"]
-    if not f.filename.lower().endswith(".pptx"):
-        return jsonify({"error": "Only .pptx files are supported"}), 400
+    name_lc = (f.filename or "").lower()
+    if name_lc.endswith(".pptx"):
+        kind = "pptx"
+    elif name_lc.endswith(".pdf"):
+        kind = "pdf"
+    else:
+        return jsonify({"error": "Only .pptx and .pdf files are supported"}), 400
 
     UPLOAD_DIR.mkdir(exist_ok=True)
     save_path = UPLOAD_DIR / secure_filename(f.filename)
     f.save(str(save_path))
 
     try:
-        process_uploaded_pptx(save_path)
+        if kind == "pptx":
+            process_uploaded_pptx(save_path)
+        else:
+            process_uploaded_pdf(save_path)
     except Exception as e:
         print(f"[upload] processing error: {e}", file=sys.stderr)
         try:
             save_path.unlink(missing_ok=True)
         except OSError:
             pass
-        return jsonify({"error": "Processing failed — check the file is a valid PPTX and try again."}), 500
+        label = "PPTX" if kind == "pptx" else "PDF"
+        return jsonify({"error": f"Processing failed — check the file is a valid {label} and try again."}), 500
 
     _set_deck_name(f.filename)
     return jsonify({"ok": True, "num_slides": len(_get_slide_files()),
@@ -492,46 +617,57 @@ def save_slide(num):
 
 @app.route("/api/export", methods=["POST"])
 def export_pptx():
-    """Rebuild PPTX: slide image as background + text overlays as real text boxes."""
+    """Rebuild PPTX: slide image as background + text overlays as real text boxes.
+    Output is kept under MAX_EXPORT_BYTES by re-compressing embedded slide images."""
     if not _check_disk_space(EXPORT_DIR):
         return jsonify({"error": "Not enough disk space to export. Free up space and try again."}), 507
     _cleanup_old_exports()
     data = load_data()
-    prs  = Presentation()
-    prs.slide_width  = Inches(13.33)
-    prs.slide_height = Inches(7.5)
-
-    blank_layout = prs.slide_layouts[6]  # completely blank
-
     current_slides = _get_slide_files()
-    for i, slide_file in enumerate(current_slides):
-        slide_num = str(i + 1)
-        slide     = prs.slides.add_slide(blank_layout)
-
-        # Background image (full slide)
-        pic = slide.shapes.add_picture(
-            str(slide_file),
-            left=0, top=0,
-            width=prs.slide_width, height=prs.slide_height
-        )
-        # Send image to back
-        slide.shapes._spTree.remove(pic._element)
-        slide.shapes._spTree.insert(2, pic._element)
-
-        # Add overlays
-        slide_data = data.get(slide_num, {})
-        for ov in slide_data.get("overlays", []):
-            _add_overlay(slide, ov, prs.slide_width, prs.slide_height)
-
-        # Speaker notes
-        notes = slide_data.get("notes", "").strip()
-        if notes:
-            tf = slide.notes_slide.notes_text_frame
-            tf.text = notes
+    if not current_slides:
+        return jsonify({"error": "No slides to export"}), 400
 
     export_name = f"SlideCraft_Export_{uuid.uuid4().hex[:8]}.pptx"
     out_path = EXPORT_DIR / export_name
-    prs.save(str(out_path))
+
+    import tempfile
+    tmp_root = Path(tempfile.mkdtemp(prefix="pptx_export_"))
+
+    def _render(scale, quality):
+        # Pre-compress slide JPGs into a temp dir, then embed those.
+        stage = tmp_root / f"q{quality}_s{int(scale*100)}"
+        compressed = _compress_slide_jpgs(current_slides, stage, scale, quality)
+
+        prs = Presentation()
+        prs.slide_width  = Inches(13.33)
+        prs.slide_height = Inches(7.5)
+        blank_layout = prs.slide_layouts[6]
+
+        for i, slide_file in enumerate(compressed):
+            slide_num = str(i + 1)
+            slide = prs.slides.add_slide(blank_layout)
+            pic = slide.shapes.add_picture(
+                str(slide_file), left=0, top=0,
+                width=prs.slide_width, height=prs.slide_height,
+            )
+            slide.shapes._spTree.remove(pic._element)
+            slide.shapes._spTree.insert(2, pic._element)
+
+            slide_data = data.get(slide_num, {})
+            for ov in slide_data.get("overlays", []):
+                _add_overlay(slide, ov, prs.slide_width, prs.slide_height)
+
+            notes = slide_data.get("notes", "").strip()
+            if notes:
+                slide.notes_slide.notes_text_frame.text = notes
+
+        prs.save(str(out_path))
+
+    try:
+        _fit_export_under_cap(out_path, _render)
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
     return send_file(str(out_path), as_attachment=True,
                      download_name="SlideCraft_Export.pptx")
 
@@ -1005,6 +1141,39 @@ def bake_overlays(num):
     return jsonify({"ok": True, "snapshot": snapshot, "log_id": log_id})
 
 
+# ── PDF text-layer routes ───────────────────────────────────────────────────
+# When the deck was uploaded as a PDF, real text + bbox is cached at upload
+# time. Frontends should prefer this over /api/ocr when available — faster
+# (no model load) and accurate (no OCR guesses).
+
+@app.route("/api/pdf-text/status")
+def pdf_text_status():
+    """Report whether a PDF text-layer cache exists and which slides have text."""
+    if not PDF_TEXT_FILE.exists():
+        return jsonify({"available": False, "slides": []})
+    try:
+        cache = json.loads(PDF_TEXT_FILE.read_text())
+    except (OSError, ValueError):
+        return jsonify({"available": False, "slides": []})
+    slides_with_text = sorted(int(k) for k, v in cache.items() if v)
+    return jsonify({"available": True, "slides": slides_with_text})
+
+
+@app.route("/api/pdf-text/<int:num>")
+def pdf_text_slide(num):
+    """Return cached PDF text regions for slide `num`. Shape mirrors /api/ocr."""
+    slide_files = _get_slide_files()
+    if num < 1 or num > len(slide_files):
+        return jsonify({"error": "Invalid slide number"}), 400
+    if not PDF_TEXT_FILE.exists():
+        return jsonify({"regions": [], "source": "none"})
+    try:
+        cache = json.loads(PDF_TEXT_FILE.read_text())
+    except (OSError, ValueError):
+        return jsonify({"regions": [], "source": "none"})
+    return jsonify({"regions": cache.get(str(num), []), "source": "pdf"})
+
+
 # ── OCR Route ───────────────────────────────────────────────────────────────
 
 @app.route("/api/ocr/<int:num>", methods=["POST"])
@@ -1021,36 +1190,89 @@ def ocr_slide(num):
     if _ocr_reader is None:
         _ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
 
-    img_path = str(slide_files[num - 1])
-    img = Image.open(img_path)
-    w, h = img.size
-
     try:
-        results = _ocr_reader.readtext(img_path)
+        merged = _ocr_one_slide(slide_files[num - 1])
     except Exception as e:
         return jsonify({"error": f"OCR failed: {e}"}), 500
+    return jsonify({"regions": merged, "raw_count": len(merged)})
 
+
+def _ocr_one_slide(img_path):
+    """Run OCR on a single slide image, return merged line-level regions.
+    Caller is responsible for ensuring _ocr_reader is initialised."""
+    img = Image.open(img_path)
+    w, h = img.size
+    results = _ocr_reader.readtext(str(img_path))
     regions = []
     for (bbox, text, conf) in results:
         text = text.strip()
         if not text or conf < 0.3:
             continue
-        # bbox is [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] — take bounding rect
         xs = [p[0] for p in bbox]
         ys = [p[1] for p in bbox]
         x1, y1 = min(xs), min(ys)
         x2, y2 = max(xs), max(ys)
         regions.append({
             "text": text,
-            "x": x1 / w,
-            "y": y1 / h,
-            "w": (x2 - x1) / w,
-            "h": (y2 - y1) / h,
+            "x": x1 / w, "y": y1 / h,
+            "w": (x2 - x1) / w, "h": (y2 - y1) / h,
             "conf": round(conf * 100),
         })
+    return _merge_ocr_regions(regions)
 
-    merged = _merge_ocr_regions(regions)
-    return jsonify({"regions": merged, "raw_count": len(regions)})
+
+@app.route("/api/ocr-all", methods=["POST"])
+def ocr_all_slides():
+    """Run OCR (or use cached PDF text) across every slide in the deck.
+    Returns {regions_by_slide: {"1": [...], ...}, source: "pdf"|"ocr"|"mixed"}."""
+    slide_files = _get_slide_files()
+    if not slide_files:
+        return jsonify({"error": "No slides"}), 400
+
+    # Prefer the cached PDF text layer where available — instant + accurate.
+    pdf_cache = {}
+    if PDF_TEXT_FILE.exists():
+        try:
+            pdf_cache = json.loads(PDF_TEXT_FILE.read_text())
+        except (OSError, ValueError):
+            pdf_cache = {}
+
+    regions_by_slide = {}
+    used_pdf, used_ocr = False, False
+
+    needs_ocr = []
+    for i, sf in enumerate(slide_files, start=1):
+        cached = pdf_cache.get(str(i))
+        if cached:
+            regions_by_slide[str(i)] = cached
+            used_pdf = True
+        else:
+            needs_ocr.append((i, sf))
+
+    if needs_ocr:
+        if not HAS_OCR:
+            return jsonify({"error": "EasyOCR is not installed. Run: pip install easyocr"}), 400
+        global _ocr_reader
+        if _ocr_reader is None:
+            _ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+        for i, sf in needs_ocr:
+            try:
+                regions_by_slide[str(i)] = _ocr_one_slide(sf)
+                used_ocr = True
+            except Exception as e:
+                # One slide failing shouldn't kill the whole batch.
+                print(f"[ocr-all] slide {i} failed: {e}", file=sys.stderr)
+                regions_by_slide[str(i)] = []
+
+    if used_pdf and used_ocr:
+        source = "mixed"
+    elif used_pdf:
+        source = "pdf"
+    else:
+        source = "ocr"
+    total = sum(len(v) for v in regions_by_slide.values())
+    return jsonify({"regions_by_slide": regions_by_slide,
+                    "source": source, "total": total})
 
 
 def _merge_ocr_regions(regions):
@@ -1537,12 +1759,20 @@ def export_pdf():
     if not slide_files:
         return jsonify({"error": "No slides to export"}), 400
 
-    first_img = Image.open(slide_files[0]).convert("RGB")
-    rest = (Image.open(sf).convert("RGB") for sf in slide_files[1:])
-
     out_path = EXPORT_DIR / f"Slides_Export_{uuid.uuid4().hex[:8]}.pdf"
-    first_img.save(str(out_path), save_all=True, append_images=rest, resolution=300, quality=97)
 
+    def _render(scale, quality):
+        imgs = []
+        for sf in slide_files:
+            img = Image.open(sf).convert("RGB")
+            if scale < 1.0:
+                img = img.resize((max(1, int(img.width*scale)),
+                                  max(1, int(img.height*scale))), Image.LANCZOS)
+            imgs.append(img)
+        imgs[0].save(str(out_path), save_all=True, append_images=imgs[1:],
+                     resolution=200, quality=quality)
+
+    _fit_export_under_cap(out_path, _render)
     return send_file(str(out_path), as_attachment=True, download_name="Slides_Export.pdf")
 
 
@@ -1625,14 +1855,26 @@ def export_png_zip():
         return jsonify({"error": "No slides"}), 400
 
     zip_path = EXPORT_DIR / f"slides_export_{uuid.uuid4().hex[:8]}.zip"
-    with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
-        for sf in slide_files:
-            img = Image.open(sf).convert("RGB")
-            png_buf = io.BytesIO()
-            img.save(png_buf, format="PNG")
-            png_buf.seek(0)
-            zf.writestr(sf.stem + ".png", png_buf.read())
 
+    def _render(scale, quality):
+        # First pass (scale=1.0, quality=90) writes true PNGs. Subsequent passes
+        # switch to JPEG inside the ZIP so we can actually shrink under the cap.
+        use_jpeg = scale < 1.0 or quality < 90
+        with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
+            for sf in slide_files:
+                img = Image.open(sf).convert("RGB")
+                if scale < 1.0:
+                    img = img.resize((max(1, int(img.width*scale)),
+                                      max(1, int(img.height*scale))), Image.LANCZOS)
+                buf = io.BytesIO()
+                if use_jpeg:
+                    img.save(buf, format="JPEG", quality=quality, optimize=True)
+                    zf.writestr(sf.stem + ".jpg", buf.getvalue())
+                else:
+                    img.save(buf, format="PNG", optimize=True)
+                    zf.writestr(sf.stem + ".png", buf.getvalue())
+
+    _fit_export_under_cap(zip_path, _render)
     return send_file(str(zip_path), as_attachment=True, download_name="slides_export.zip")
 
 
@@ -1649,16 +1891,21 @@ def export_gif():
     if not slide_files:
         return jsonify({"error": "No slides"}), 400
 
-    frames = []
-    for sf in slide_files:
-        img = Image.open(sf).convert("RGB")
-        img = img.resize((1280, 720), Image.LANCZOS)
-        frames.append(img)
-
     gif_path = EXPORT_DIR / f"slides_export_{uuid.uuid4().hex[:8]}.gif"
-    frames[0].save(str(gif_path), save_all=True, append_images=frames[1:],
-                   duration=duration_ms, loop=0, optimize=True)
 
+    def _render(scale, quality):
+        # Scale 1.0 → 1280×720; lower scales shrink proportionally. Quality drives palette size.
+        w = max(320, int(1280 * scale))
+        h = max(180, int(720 * scale))
+        colors = max(32, min(256, int(256 * (quality / 90))))
+        frames = []
+        for sf in slide_files:
+            img = Image.open(sf).convert("RGB").resize((w, h), Image.LANCZOS)
+            frames.append(img.convert("P", palette=Image.ADAPTIVE, colors=colors))
+        frames[0].save(str(gif_path), save_all=True, append_images=frames[1:],
+                       duration=duration_ms, loop=0, optimize=True)
+
+    _fit_export_under_cap(gif_path, _render)
     return send_file(str(gif_path), as_attachment=True, download_name="slides_export.gif")
 
 

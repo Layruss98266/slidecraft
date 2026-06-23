@@ -21,6 +21,7 @@ _ORIGINAL_PATHS = {
     "UPLOAD_DIR": _app_module.UPLOAD_DIR,
     "EXPORT_DIR": _app_module.EXPORT_DIR,
     "DATA_FILE": _app_module.DATA_FILE,
+    "PDF_TEXT_FILE": _app_module.PDF_TEXT_FILE,
     "VIDEO_DIR": _app_module.VIDEO_DIR,
     "TEMPLATES_DIR": _app_module.TEMPLATES_DIR,
     "HISTORY_DIR": _app_module.HISTORY_DIR,
@@ -61,6 +62,7 @@ def app_client(tmp_path, monkeypatch):
     app_module.UPLOAD_DIR = tmp_path / "uploads"
     app_module.EXPORT_DIR = tmp_path / "exports"
     app_module.DATA_FILE = tmp_path / "slide_data.json"
+    app_module.PDF_TEXT_FILE = tmp_path / "pdf_text.json"
     app_module.VIDEO_DIR = tmp_path / "videos"
     app_module.TEMPLATES_DIR = tmp_path / "templates_saved"
     app_module.HISTORY_DIR = tmp_path / "history"

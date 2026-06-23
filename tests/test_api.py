@@ -469,6 +469,49 @@ def test_upload_no_file(app_with_slides):
     assert r.status_code == 400
 
 
+def test_pdf_upload_extracts_text_layer(app_with_slides):
+    """PDF upload should render slides AND cache an extractable text layer."""
+    import fitz
+    client, app_module = app_with_slides
+
+    # Build a 2-page PDF where each page has a distinct text line.
+    doc = fitz.open()
+    for i in range(2):
+        page = doc.new_page(width=600, height=400)
+        page.insert_text((50, 100), f"Hello slide {i + 1}", fontsize=24)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    r = client.post("/api/upload",
+                    data={"file": (io.BytesIO(pdf_bytes), "test.pdf")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+    assert r.get_json()["num_slides"] == 2
+
+    # Status endpoint should report both slides have text
+    status = client.get("/api/pdf-text/status").get_json()
+    assert status["available"] is True
+    assert status["slides"] == [1, 2]
+
+    # Per-slide endpoint returns regions with the original text
+    slide_1 = client.get("/api/pdf-text/1").get_json()
+    assert slide_1["source"] == "pdf"
+    texts = [r["text"] for r in slide_1["regions"]]
+    assert any("Hello slide 1" in t for t in texts)
+
+    # A subsequent PPTX upload must wipe the stale text cache
+    pptx_path = app_module.UPLOAD_DIR / "clean.pptx"
+    from tests.conftest import _make_dummy_pptx
+    _make_dummy_pptx(pptx_path, 2)
+    with open(pptx_path, "rb") as fh:
+        r2 = client.post("/api/upload",
+                         data={"file": (fh, "clean.pptx")},
+                         content_type="multipart/form-data")
+    assert r2.status_code == 200
+    status_after = client.get("/api/pdf-text/status").get_json()
+    assert status_after["available"] is False
+
+
 def test_upload_pptx_atomic_preserves_state_on_failure(app_with_slides):
     """A malformed PPTX must NOT wipe existing slides."""
     client, app_module = app_with_slides

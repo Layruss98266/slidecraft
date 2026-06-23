@@ -42,8 +42,11 @@ let resizing = null; // {handle:'nw'|'n'|'ne'|'e'|'se'|'s'|'sw'|'w', startX, sta
 // Snap grid
 let gridEnabled = false;
 
-// OCR regions
+// OCR regions — `ocrRegions` is the live set for the current slide.
+// When "OCR All" is run, `ocrRegionsBySlide` holds results per slide and
+// `gotoSlide` swaps `ocrRegions` in on navigation.
 let ocrRegions = [];
+let ocrRegionsBySlide = null;
 
 // Clipboard for copy/paste
 let clipboardOverlay = null;
@@ -236,6 +239,13 @@ async function gotoSlide(n) {
 
   currentSlide = n;
   const pad = String(n).padStart(3, '0');
+
+  // If "OCR All" populated per-slide regions, swap them in on navigation.
+  if (ocrRegionsBySlide) {
+    ocrRegions = ocrRegionsBySlide[String(n)] || [];
+    const hasAny = Object.values(ocrRegionsBySlide).some(arr => arr && arr.length);
+    document.getElementById('btn-clear-ocr').style.display = hasAny ? '' : 'none';
+  }
 
   slideImg.style.opacity = '0.5';
   slideImg.src = `/static/slides/slide-${pad}.jpg`;
@@ -1694,7 +1704,7 @@ async function exportPPTX() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    const basePptx = currentDeckName ? currentDeckName.replace(/\.pptx$/i, '') : 'SlideCraft_Export';
+    const basePptx = currentDeckName ? currentDeckName.replace(/\.(pptx|pdf)$/i, '') : 'SlideCraft_Export';
     a.download = basePptx + '_Edited.pptx';
     a.click();
     URL.revokeObjectURL(url);
@@ -1777,7 +1787,7 @@ async function exportPDF() {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      const basePdf = currentDeckName ? currentDeckName.replace(/\.pptx$/i, '') : 'SlideCraft_Export';
+      const basePdf = currentDeckName ? currentDeckName.replace(/\.(pptx|pdf)$/i, '') : 'SlideCraft_Export';
     a.download = basePdf + '_Edited.pdf';
       a.click();
       URL.revokeObjectURL(url);
@@ -1795,10 +1805,29 @@ async function exportPDF() {
 // OCR TEXT DETECTION
 // ══════════════════════════════════════════════════════════════════════════
 async function detectText() {
+  // Single-slide mode wipes any prior "OCR All" state.
+  ocrRegionsBySlide = null;
   showLoading('Detecting text...');
   try {
-    const resp = await fetch(`/api/ocr/${currentSlide}`, { method: 'POST' });
-    const data = await resp.json();
+    // Prefer the cached PDF text layer when this deck was uploaded as a PDF —
+    // instant, accurate, no model load. Fall back to OCR otherwise.
+    let data = null;
+    let source = 'ocr';
+    try {
+      const pdfResp = await fetch(`/api/pdf-text/${currentSlide}`);
+      if (pdfResp.ok) {
+        const pdfData = await pdfResp.json();
+        if (pdfData.source === 'pdf' && Array.isArray(pdfData.regions) && pdfData.regions.length) {
+          data = pdfData;
+          source = 'pdf';
+        }
+      }
+    } catch (_) { /* fall through to OCR */ }
+
+    if (!data) {
+      const resp = await fetch(`/api/ocr/${currentSlide}`, { method: 'POST' });
+      data = await resp.json();
+    }
     hideLoading();
     if (data.error) {
       showToast(data.error, 'error');
@@ -1808,24 +1837,59 @@ async function detectText() {
       ocrRegions = data.regions.map(r => ({
         text: r.text,
         x: r.x, y: r.y, w: r.w, h: r.h,
-        conf: r.conf
+        conf: r.conf != null ? r.conf : 100,
+        fontSize: r.fontSize,
+        color: r.color,
       }));
       document.getElementById('btn-clear-ocr').style.display = '';
       renderOverlays();
-      showToast(`Detected ${data.regions.length} text regions`, 'info');
+      const label = source === 'pdf' ? 'PDF text' : 'text regions';
+      showToast(`Detected ${data.regions.length} ${label}`, 'info');
     } else {
       showToast('No text detected', 'info');
     }
   } catch (e) {
     hideLoading();
-    showToast('OCR failed: ' + e.message, 'error');
+    showToast('Text detection failed: ' + e.message, 'error');
   }
 }
 
 function clearOCR() {
   ocrRegions = [];
+  ocrRegionsBySlide = null;
   document.getElementById('btn-clear-ocr').style.display = 'none';
   renderOverlays();
+}
+
+async function detectTextAll() {
+  showLoading('Detecting text across every slide…');
+  try {
+    const resp = await fetch('/api/ocr-all', { method: 'POST' });
+    const data = await resp.json();
+    hideLoading();
+    if (data.error) { showToast(data.error, 'error'); return; }
+
+    const map = data.regions_by_slide || {};
+    const normalize = arr => (arr || []).map(r => ({
+      text: r.text, x: r.x, y: r.y, w: r.w, h: r.h,
+      conf: r.conf != null ? r.conf : 100,
+      fontSize: r.fontSize, color: r.color,
+    }));
+    ocrRegionsBySlide = {};
+    Object.keys(map).forEach(k => { ocrRegionsBySlide[k] = normalize(map[k]); });
+    ocrRegions = ocrRegionsBySlide[String(currentSlide)] || [];
+
+    const total = data.total || Object.values(ocrRegionsBySlide).reduce((s, a) => s + a.length, 0);
+    if (total > 0) document.getElementById('btn-clear-ocr').style.display = '';
+    const sourceLabel = data.source === 'pdf' ? 'PDF text'
+                       : data.source === 'mixed' ? 'PDF text + OCR'
+                       : 'text regions';
+    renderOverlays();
+    showToast(`Detected ${total} ${sourceLabel} across ${Object.keys(map).length} slides`, 'info', 3500);
+  } catch (e) {
+    hideLoading();
+    showToast('Text detection failed: ' + e.message, 'error');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -2044,10 +2108,10 @@ document.addEventListener('drop', e => {
   dragCounter = 0;
   dropOverlay.classList.remove('active');
   const file = e.dataTransfer.files[0];
-  if (file && file.name.toLowerCase().endsWith('.pptx')) {
+  if (file && /\.(pptx|pdf)$/i.test(file.name)) {
     doUpload(file);
   } else {
-    showToast('Please drop a .pptx file', 'error');
+    showToast('Please drop a .pptx or .pdf file', 'error');
   }
 });
 

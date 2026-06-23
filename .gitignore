@@ -57,3 +57,5 @@ current_deck.txt
 # Test files
 test_*.pptx
 test_*.ppt
+pdf_text.json
+autosave.json
