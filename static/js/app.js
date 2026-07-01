@@ -2972,6 +2972,7 @@ let wmType = 'text';
 let wmPosition = 'center';
 let wmScope = 'all';
 let wmPreviewTimer = null;
+let wmPreviewAbort = null;
 let wmDetectCandidates = [];
 let wmSelectedCandidates = new Set();
 let wmLastSnapshot = null;
@@ -3130,6 +3131,9 @@ function schedulePreview() {
 }
 
 async function renderTextPreview() {
+  if (wmPreviewAbort) wmPreviewAbort.abort();
+  const abort = new AbortController();
+  wmPreviewAbort = abort;
   const box = document.getElementById('wm-preview-box');
   box.classList.add('loading');
   try {
@@ -3146,13 +3150,14 @@ async function renderTextPreview() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: abort.signal,
     });
     const data = await resp.json();
-    if (data.preview) document.getElementById('wm-preview-img').src = data.preview;
+    if (wmPreviewAbort === abort && data.preview) document.getElementById('wm-preview-img').src = data.preview;
   } catch (e) {
-    // Silent — preview is best-effort
+    // Silent — preview is best-effort (includes AbortError from superseded requests)
   } finally {
-    box.classList.remove('loading');
+    if (wmPreviewAbort === abort) box.classList.remove('loading');
   }
 }
 

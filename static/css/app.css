@@ -980,7 +980,7 @@
   .list-item .list-item-actions { display: flex; gap: 4px; }
 
   /* ── Watermark Manager ──────────────────────────────────────────────── */
-  .wm-card { max-width: 880px; width: 95vw; padding: 0; overflow: hidden; }
+  .wm-card { max-width: 1160px; width: 95vw; padding: 0; overflow: hidden; }
   .wm-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 18px 22px 14px; border-bottom: 1px solid var(--glass-border);
@@ -1008,8 +1008,8 @@
   }
 
   .wm-body { padding: 20px 22px 22px; }
-  .wm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
-  @media (max-width: 720px) { .wm-grid { grid-template-columns: 1fr; } }
+  .wm-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .wm-grid { grid-template-columns: 1fr; } }
 
   .wm-section-label {
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;

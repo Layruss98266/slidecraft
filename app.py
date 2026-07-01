@@ -15,6 +15,9 @@ from PIL import Image, ImageDraw, ImageFont
 from werkzeug.utils import secure_filename
 import io
 import threading
+from concurrent.futures import ThreadPoolExecutor
+
+_IO_WORKERS = min(8, (os.cpu_count() or 4) * 2)
 
 # Cap PIL image dimensions to prevent decompression-bomb DoS
 Image.MAX_IMAGE_PIXELS = 50_000_000  # ~50 MP
@@ -2497,8 +2500,9 @@ def _snapshot_before_destructive(reason="watermark"):
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{uuid.uuid4().hex[:4]}"
         version_dir = HISTORY_DIR / ts
         version_dir.mkdir(exist_ok=True)
-        for sf in _get_slide_files():
-            shutil.copy2(str(sf), str(version_dir / sf.name))
+        slide_files = _get_slide_files()
+        with ThreadPoolExecutor(max_workers=_IO_WORKERS) as pool:
+            list(pool.map(lambda sf: shutil.copy2(str(sf), str(version_dir / sf.name)), slide_files))
         if DATA_FILE.exists():
             shutil.copy2(str(DATA_FILE), str(version_dir / "data.json"))
         if COMMENTS_FILE.exists():
@@ -2562,7 +2566,8 @@ def add_watermark():
             return jsonify({"error": "Skip list excludes every slide — nothing to do"}), 400
 
     snapshot = _snapshot_before_destructive("watermark-text")
-    for sf in targets:
+
+    def _apply_one(sf):
         img = Image.open(sf).convert("RGBA")
         w, h = img.size
         layer = _build_text_watermark_layer(
@@ -2572,6 +2577,9 @@ def add_watermark():
         )
         img = Image.alpha_composite(img, layer)
         img.convert("RGB").save(str(sf), quality=95)
+
+    with ThreadPoolExecutor(max_workers=_IO_WORKERS) as pool:
+        list(pool.map(_apply_one, targets))
 
     entry_id = uuid.uuid4().hex[:12]
     _append_wm_log({
@@ -2925,11 +2933,11 @@ def remove_watermark_all():
 
     slide_files = _get_slide_files()
     snapshot = _snapshot_before_destructive("watermark-remove-all")
-    count = 0
-    for sf in slide_files:
+
+    def _remove_one(sf):
         img = cv2.imread(str(sf))
         if img is None:
-            continue
+            return False
         h, w = img.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
         for r in regions:
@@ -2940,7 +2948,10 @@ def remove_watermark_all():
             mask[y1:y2, x1:x2] = 255
         result = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
         cv2.imwrite(str(sf), result, [cv2.IMWRITE_JPEG_QUALITY, 95])
-        count += 1
+        return True
+
+    with ThreadPoolExecutor(max_workers=_IO_WORKERS) as pool:
+        count = sum(1 for ok in pool.map(_remove_one, slide_files) if ok)
 
     return jsonify({"ok": True, "slides": count, "snapshot": snapshot})
 
@@ -2990,7 +3001,8 @@ def add_image_watermark():
             return jsonify({"error": "Skip list excludes every slide — nothing to do"}), 400
 
     snapshot = _snapshot_before_destructive("watermark-image")
-    for sf in slide_files:
+
+    def _apply_one(sf):
         img = Image.open(sf).convert("RGBA")
         w, h = img.size
 
@@ -3028,11 +3040,14 @@ def add_image_watermark():
                     overlay.paste(wm_resized, (tx, ty), wm_resized)
             img = Image.alpha_composite(img, overlay)
             img.convert("RGB").save(str(sf), quality=95)
-            continue
+            return
         pos = _positions.get(wm_position, _positions["bottom-right"])
 
         img.paste(wm_resized, pos, wm_resized)
         img.convert("RGB").save(str(sf), quality=95)
+
+    with ThreadPoolExecutor(max_workers=_IO_WORKERS) as pool:
+        list(pool.map(_apply_one, slide_files))
 
     entry_id = uuid.uuid4().hex[:12]
     _append_wm_log({
@@ -3259,8 +3274,9 @@ def revert_watermark(entry_id):
         # scope == "all" or orphan — restore everything (existing behaviour).
         for f in SLIDES_DIR.glob("slide-*.jpg"):
             f.unlink()
-        for sf in sorted(version_dir.glob("slide-*.jpg")):
-            shutil.copy2(str(sf), str(SLIDES_DIR / sf.name))
+        restore_files = sorted(version_dir.glob("slide-*.jpg"))
+        with ThreadPoolExecutor(max_workers=_IO_WORKERS) as pool:
+            list(pool.map(lambda sf: shutil.copy2(str(sf), str(SLIDES_DIR / sf.name)), restore_files))
         if data_file.exists():
             with _data_lock:
                 DATA_FILE.write_text(data_file.read_text())
@@ -4167,4 +4183,4 @@ if __name__ == "__main__":
     if host == '0.0.0.0':
         print("WARNING: binding to 0.0.0.0 — anyone on your network can read, edit, or delete your slides.", file=sys.stderr)
     app.run(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true',
-            port=int(os.environ.get('PORT', 5050)), host=host)
+            port=int(os.environ.get('PORT', 5050)), host=host, threaded=True)
