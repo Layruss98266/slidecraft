@@ -1029,6 +1029,7 @@ function preloadOverlayImages() {
 function preloadSingleImage(idx) {
   const ov = overlays[idx];
   if (!ov || ov.type !== 'image' || !ov.src) return;
+  if (imageCache[ov.src]) return;
   const img = new Image();
   img.onload = () => { imageCache[ov.src] = img; renderOverlays(); };
   img.src = ov.src;

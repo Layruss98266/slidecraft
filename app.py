@@ -3880,239 +3880,238 @@ def find_replace():
                     "snapshot": snapshot, "log_id": log_id})
 
 
-# ── Video Logo Removal ──────────────────────────────────────────────────────
-
-@app.route("/video")
-def video_page():
-    return render_template("video.html")
-
-
-@app.route("/api/video/upload", methods=["POST"])
-def upload_video():
-    """Upload a video file for logo removal."""
-    if "file" not in request.files:
-        return jsonify({"error": "No file"}), 400
-    f = request.files["file"]
-    fname = secure_filename(f.filename)
-    if not fname:
-        return jsonify({"error": "Invalid filename"}), 400
-    ext = Path(fname).suffix.lower()
-    if ext not in ALLOWED_VIDEO_EXTS:
-        return jsonify({"error": f"Unsupported video format: {ext}. Allowed: {', '.join(ALLOWED_VIDEO_EXTS)}"}), 400
-
-    save_path = VIDEO_DIR / fname
-    f.save(str(save_path))
-    return jsonify({"ok": True, "filename": fname})
-
-
-@app.route("/api/video/preview-frame", methods=["POST"])
-def video_preview_frame():
-    """Get a frame from the video + detect logo region."""
-    payload = _ensure_dict(request.get_json(force=True, silent=True))
-    fname = payload.get("filename", "")
-    video_path = VIDEO_DIR / secure_filename(fname)
-    if not video_path.exists():
-        return jsonify({"error": "Video not found"}), 400
-
-    import cv2
-    cap = cv2.VideoCapture(str(video_path))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 30)  # grab frame 30
-    ret, frame = cap.read()
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = total / fps if fps > 0 else 0
-    cap.release()
-
-    if not ret:
-        return jsonify({"error": "Could not read video frame"}), 500
-
-    # Convert frame to base64 JPEG
-    _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    b64 = base64.b64encode(buf.tobytes()).decode()
-
-    return jsonify({
-        "frame": f"data:image/jpeg;base64,{b64}",
-        "width": w, "height": h,
-        "fps": fps, "duration": round(duration, 1),
-        "totalFrames": total
-    })
-
-
-import time as _time
-
-_video_jobs = {}  # job_id → {status, progress, total, eta, output, error, created_at}
-_VIDEO_JOB_MAX_AGE = 3600  # expire jobs after 1 hour
-
-
-def _cleanup_video_jobs():
-    """Remove completed/cancelled jobs older than max age."""
-    now = _time.time()
-    expired = [jid for jid, job in _video_jobs.items()
-               if job.get("status") in ("done", "cancelled", "error")
-               and now - job.get("created_at", 0) > _VIDEO_JOB_MAX_AGE]
-    for jid in expired:
-        del _video_jobs[jid]
-
-
-@app.route("/api/video/remove-logo", methods=["POST"])
-def remove_video_logo():
-    """Start logo removal job in a background thread, return job_id for polling."""
-    payload = _ensure_dict(request.get_json(force=True, silent=True))
-    fname = payload.get("filename", "")
-    lx = float(payload.get("x", 0.85))
-    ly = float(payload.get("y", 0.93))
-    lw = float(payload.get("w", 0.14))
-    lh = float(payload.get("h", 0.06))
-
-    video_path = VIDEO_DIR / secure_filename(fname)
-    if not video_path.exists():
-        return jsonify({"error": "Video not found"}), 400
-
-    _cleanup_video_jobs()
-    job_id = f"job_{int(_time.time()*1000)}"
-    _video_jobs[job_id] = {"status": "starting", "progress": 0, "total": 0, "eta": 0, "output": "", "error": "", "created_at": _time.time()}
-
-    t = threading.Thread(target=_run_logo_removal, args=(job_id, video_path, fname, lx, ly, lw, lh), daemon=True)
-    t.start()
-
-    return jsonify({"ok": True, "jobId": job_id})
-
-
-@app.route("/api/video/progress/<job_id>")
-def video_progress(job_id):
-    """Poll for job progress."""
-    job = _video_jobs.get(job_id)
-    if not job:
-        return jsonify({"error": "Job not found"}), 404
-    return jsonify(job)
-
-
-@app.route("/api/video/stop/<job_id>", methods=["POST"])
-def stop_video_job(job_id):
-    """Request cancellation of a running video job."""
-    job = _video_jobs.get(job_id)
-    if not job:
-        return jsonify({"error": "Job not found"}), 404
-    job["cancel"] = True
-    return jsonify({"ok": True})
-
-
-def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
-    """Background worker for video logo removal."""
-    import cv2
-    import numpy as np
-
-    job = _video_jobs[job_id]
-    job["status"] = "processing"
-
-    try:
-        cap = cv2.VideoCapture(str(video_path))
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        job["total"] = total
-
-        x1 = int(lx * w)
-        y1 = int(ly * h)
-        x2 = min(w, int((lx + lw) * w))
-        y2 = min(h, int((ly + lh) * h))
-
-        out_name = f"clean_{secure_filename(fname)}"
-        if not out_name.lower().endswith('.mp4'):
-            out_name = out_name.rsplit('.', 1)[0] + '.mp4'
-        out_path = VIDEO_DIR / out_name
-        temp_path = VIDEO_DIR / f"_temp_{out_name}"
-
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (w, h))
-
-        mask = np.zeros((h, w), dtype=np.uint8)
-        mask[y1:y2, x1:x2] = 255
-
-        frame_num = 0
-        start_time = _time.time()
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            # Check for cancellation
-            if job.get("cancel"):
-                job["status"] = "cancelled"
-                break
-
-            frame = cv2.inpaint(frame, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
-            writer.write(frame)
-            frame_num += 1
-
-            # Update progress every 10 frames
-            if frame_num % 10 == 0 or frame_num == total:
-                elapsed = _time.time() - start_time
-                fps_actual = frame_num / max(0.1, elapsed)
-                remaining = (total - frame_num) / max(1, fps_actual)
-                job["progress"] = frame_num
-                job["eta"] = round(remaining, 1)
-
-        cap.release()
-        writer.release()
-
-        # If cancelled, clean up and exit
-        if job.get("cancel"):
-            temp_path.unlink(missing_ok=True)
-            job["eta"] = 0
-            return
-
-        # Mux audio
-        job["status"] = "muxing_audio"
-        job["eta"] = 0
-        try:
-            from moviepy import VideoFileClip
-            original = VideoFileClip(str(video_path))
-            clean = VideoFileClip(str(temp_path))
-            if original.audio is not None:
-                final = clean.with_audio(original.audio)
-                temp_audio = VIDEO_DIR / f'_temp_audio_{job_id}.m4a'
-                final.write_videofile(str(out_path), codec='libx264', audio_codec='aac',
-                                      logger=None, temp_audiofile=str(temp_audio))
-                final.close()
-            else:
-                clean.write_videofile(str(out_path), codec='libx264', logger=None)
-            original.close()
-            clean.close()
-            temp_path.unlink(missing_ok=True)
-        except ImportError:
-            if temp_path.exists():
-                shutil.move(str(temp_path), str(out_path))
-            job["warning"] = "moviepy not installed — audio track not restored"
-        except Exception as _mux_err:
-            if temp_path.exists():
-                shutil.move(str(temp_path), str(out_path))
-            job["warning"] = f"Audio muxing failed, output is video-only: {_mux_err}"
-            print(f"[video-mux] {_mux_err}", file=sys.stderr)
-
-        (VIDEO_DIR / f'_temp_audio_{job_id}.m4a').unlink(missing_ok=True)
-
-        job["status"] = "done"
-        job["progress"] = total
-        job["output"] = out_name
-        job["eta"] = 0
-
-    except Exception as e:
-        job["status"] = "error"
-        job["error"] = str(e)
-
-
-@app.route("/api/video/download/<filename>")
-def download_video(filename):
-    safe_name = secure_filename(filename)
-    fpath = VIDEO_DIR / safe_name
-    if not fpath.exists():
-        return jsonify({"error": "File not found"}), 404
-    return send_file(str(fpath), as_attachment=True, download_name=safe_name)
+# ── Video Logo Removal (disabled — not in active development, kept for later) ──
+# @app.route("/video")
+# def video_page():
+#     return render_template("video.html")
+# 
+# 
+# @app.route("/api/video/upload", methods=["POST"])
+# def upload_video():
+#     """Upload a video file for logo removal."""
+#     if "file" not in request.files:
+#         return jsonify({"error": "No file"}), 400
+#     f = request.files["file"]
+#     fname = secure_filename(f.filename)
+#     if not fname:
+#         return jsonify({"error": "Invalid filename"}), 400
+#     ext = Path(fname).suffix.lower()
+#     if ext not in ALLOWED_VIDEO_EXTS:
+#         return jsonify({"error": f"Unsupported video format: {ext}. Allowed: {', '.join(ALLOWED_VIDEO_EXTS)}"}), 400
+# 
+#     save_path = VIDEO_DIR / fname
+#     f.save(str(save_path))
+#     return jsonify({"ok": True, "filename": fname})
+# 
+# 
+# @app.route("/api/video/preview-frame", methods=["POST"])
+# def video_preview_frame():
+#     """Get a frame from the video + detect logo region."""
+#     payload = _ensure_dict(request.get_json(force=True, silent=True))
+#     fname = payload.get("filename", "")
+#     video_path = VIDEO_DIR / secure_filename(fname)
+#     if not video_path.exists():
+#         return jsonify({"error": "Video not found"}), 400
+# 
+#     import cv2
+#     cap = cv2.VideoCapture(str(video_path))
+#     cap.set(cv2.CAP_PROP_POS_FRAMES, 30)  # grab frame 30
+#     ret, frame = cap.read()
+#     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+#     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+#     fps = cap.get(cv2.CAP_PROP_FPS)
+#     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+#     duration = total / fps if fps > 0 else 0
+#     cap.release()
+# 
+#     if not ret:
+#         return jsonify({"error": "Could not read video frame"}), 500
+# 
+#     # Convert frame to base64 JPEG
+#     _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+#     b64 = base64.b64encode(buf.tobytes()).decode()
+# 
+#     return jsonify({
+#         "frame": f"data:image/jpeg;base64,{b64}",
+#         "width": w, "height": h,
+#         "fps": fps, "duration": round(duration, 1),
+#         "totalFrames": total
+#     })
+# 
+# 
+# import time as _time
+# 
+# _video_jobs = {}  # job_id → {status, progress, total, eta, output, error, created_at}
+# _VIDEO_JOB_MAX_AGE = 3600  # expire jobs after 1 hour
+# 
+# 
+# def _cleanup_video_jobs():
+#     """Remove completed/cancelled jobs older than max age."""
+#     now = _time.time()
+#     expired = [jid for jid, job in _video_jobs.items()
+#                if job.get("status") in ("done", "cancelled", "error")
+#                and now - job.get("created_at", 0) > _VIDEO_JOB_MAX_AGE]
+#     for jid in expired:
+#         del _video_jobs[jid]
+# 
+# 
+# @app.route("/api/video/remove-logo", methods=["POST"])
+# def remove_video_logo():
+#     """Start logo removal job in a background thread, return job_id for polling."""
+#     payload = _ensure_dict(request.get_json(force=True, silent=True))
+#     fname = payload.get("filename", "")
+#     lx = float(payload.get("x", 0.85))
+#     ly = float(payload.get("y", 0.93))
+#     lw = float(payload.get("w", 0.14))
+#     lh = float(payload.get("h", 0.06))
+# 
+#     video_path = VIDEO_DIR / secure_filename(fname)
+#     if not video_path.exists():
+#         return jsonify({"error": "Video not found"}), 400
+# 
+#     _cleanup_video_jobs()
+#     job_id = f"job_{int(_time.time()*1000)}"
+#     _video_jobs[job_id] = {"status": "starting", "progress": 0, "total": 0, "eta": 0, "output": "", "error": "", "created_at": _time.time()}
+# 
+#     t = threading.Thread(target=_run_logo_removal, args=(job_id, video_path, fname, lx, ly, lw, lh), daemon=True)
+#     t.start()
+# 
+#     return jsonify({"ok": True, "jobId": job_id})
+# 
+# 
+# @app.route("/api/video/progress/<job_id>")
+# def video_progress(job_id):
+#     """Poll for job progress."""
+#     job = _video_jobs.get(job_id)
+#     if not job:
+#         return jsonify({"error": "Job not found"}), 404
+#     return jsonify(job)
+# 
+# 
+# @app.route("/api/video/stop/<job_id>", methods=["POST"])
+# def stop_video_job(job_id):
+#     """Request cancellation of a running video job."""
+#     job = _video_jobs.get(job_id)
+#     if not job:
+#         return jsonify({"error": "Job not found"}), 404
+#     job["cancel"] = True
+#     return jsonify({"ok": True})
+# 
+# 
+# def _run_logo_removal(job_id, video_path, fname, lx, ly, lw, lh):
+#     """Background worker for video logo removal."""
+#     import cv2
+#     import numpy as np
+# 
+#     job = _video_jobs[job_id]
+#     job["status"] = "processing"
+# 
+#     try:
+#         cap = cv2.VideoCapture(str(video_path))
+#         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+#         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+#         fps = cap.get(cv2.CAP_PROP_FPS)
+#         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+#         job["total"] = total
+# 
+#         x1 = int(lx * w)
+#         y1 = int(ly * h)
+#         x2 = min(w, int((lx + lw) * w))
+#         y2 = min(h, int((ly + lh) * h))
+# 
+#         out_name = f"clean_{secure_filename(fname)}"
+#         if not out_name.lower().endswith('.mp4'):
+#             out_name = out_name.rsplit('.', 1)[0] + '.mp4'
+#         out_path = VIDEO_DIR / out_name
+#         temp_path = VIDEO_DIR / f"_temp_{out_name}"
+# 
+#         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+#         writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (w, h))
+# 
+#         mask = np.zeros((h, w), dtype=np.uint8)
+#         mask[y1:y2, x1:x2] = 255
+# 
+#         frame_num = 0
+#         start_time = _time.time()
+# 
+#         while True:
+#             ret, frame = cap.read()
+#             if not ret:
+#                 break
+# 
+#             # Check for cancellation
+#             if job.get("cancel"):
+#                 job["status"] = "cancelled"
+#                 break
+# 
+#             frame = cv2.inpaint(frame, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+#             writer.write(frame)
+#             frame_num += 1
+# 
+#             # Update progress every 10 frames
+#             if frame_num % 10 == 0 or frame_num == total:
+#                 elapsed = _time.time() - start_time
+#                 fps_actual = frame_num / max(0.1, elapsed)
+#                 remaining = (total - frame_num) / max(1, fps_actual)
+#                 job["progress"] = frame_num
+#                 job["eta"] = round(remaining, 1)
+# 
+#         cap.release()
+#         writer.release()
+# 
+#         # If cancelled, clean up and exit
+#         if job.get("cancel"):
+#             temp_path.unlink(missing_ok=True)
+#             job["eta"] = 0
+#             return
+# 
+#         # Mux audio
+#         job["status"] = "muxing_audio"
+#         job["eta"] = 0
+#         try:
+#             from moviepy import VideoFileClip
+#             original = VideoFileClip(str(video_path))
+#             clean = VideoFileClip(str(temp_path))
+#             if original.audio is not None:
+#                 final = clean.with_audio(original.audio)
+#                 temp_audio = VIDEO_DIR / f'_temp_audio_{job_id}.m4a'
+#                 final.write_videofile(str(out_path), codec='libx264', audio_codec='aac',
+#                                       logger=None, temp_audiofile=str(temp_audio))
+#                 final.close()
+#             else:
+#                 clean.write_videofile(str(out_path), codec='libx264', logger=None)
+#             original.close()
+#             clean.close()
+#             temp_path.unlink(missing_ok=True)
+#         except ImportError:
+#             if temp_path.exists():
+#                 shutil.move(str(temp_path), str(out_path))
+#             job["warning"] = "moviepy not installed — audio track not restored"
+#         except Exception as _mux_err:
+#             if temp_path.exists():
+#                 shutil.move(str(temp_path), str(out_path))
+#             job["warning"] = f"Audio muxing failed, output is video-only: {_mux_err}"
+#             print(f"[video-mux] {_mux_err}", file=sys.stderr)
+# 
+#         (VIDEO_DIR / f'_temp_audio_{job_id}.m4a').unlink(missing_ok=True)
+# 
+#         job["status"] = "done"
+#         job["progress"] = total
+#         job["output"] = out_name
+#         job["eta"] = 0
+# 
+#     except Exception as e:
+#         job["status"] = "error"
+#         job["error"] = str(e)
+# 
+# 
+# @app.route("/api/video/download/<filename>")
+# def download_video(filename):
+#     safe_name = secure_filename(filename)
+#     fpath = VIDEO_DIR / safe_name
+#     if not fpath.exists():
+#         return jsonify({"error": "File not found"}), 404
+#     return send_file(str(fpath), as_attachment=True, download_name=safe_name)
 
 
 # ── Feature modules (registered after all core routes) ──────────────────────

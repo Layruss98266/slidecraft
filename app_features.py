@@ -18,6 +18,8 @@ from flask import jsonify, request, send_file
 from werkzeug.utils import secure_filename
 from PIL import Image
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+import os as _os
 
 
 def register_feature_routes(app, ctx):
@@ -127,18 +129,25 @@ def register_feature_routes(app, ctx):
         slides = get_slides()
         if not slides:
             return jsonify({"colors": []})
-        bucket = Counter()
-        for sf in slides[:20]:  # cap for speed
+
+        def _slide_colors(sf):
             try:
                 img = Image.open(sf).convert("RGB")
                 img.thumbnail((120, 120))
                 q = img.quantize(colors=6)
                 pal = q.getpalette()[:6 * 3]
+                counts = Counter()
                 for idx, count in Counter(q.getdata()).most_common(6):
                     r, g, b = pal[idx * 3:idx * 3 + 3]
-                    bucket[(r // 16 * 16, g // 16 * 16, b // 16 * 16)] += count
+                    counts[(r // 16 * 16, g // 16 * 16, b // 16 * 16)] += count
+                return counts
             except OSError:
-                continue
+                return Counter()
+
+        bucket = Counter()
+        with ThreadPoolExecutor(max_workers=min(8, (_os.cpu_count() or 4) * 2)) as pool:
+            for counts in pool.map(_slide_colors, slides[:20]):  # cap for speed
+                bucket.update(counts)
         top = [c for c, _ in bucket.most_common(8)]
         return jsonify({
             "colors": ["#{:02X}{:02X}{:02X}".format(*c) for c in top],
